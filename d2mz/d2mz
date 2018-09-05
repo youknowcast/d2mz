@@ -1,0 +1,47 @@
+#!/usr/bin/python
+# coding: utf-8
+
+import sys
+import io
+from initializer import Initializer
+from configmanager import ConfigManager
+
+
+argvs = sys.argv
+argc = len(argvs)
+
+OPTIONS = ['init', 'collect', 'list']
+
+HELP = """d2mz.
+=====================
+  d2mz init      make d2mz repository at current dir.
+  d2mz collect   collect files at current dir. and store repository.
+  d2mz list      show all list
+"""
+
+def show_help():
+  print(HELP)
+
+
+def main():
+  mode = ''
+  if argc >= 2:
+    for opt in OPTIONS:
+      if opt == argvs[1]:
+        mode = opt
+  if mode == '':
+      show_help()
+      quit()
+
+  if mode == 'init':
+    init = Initializer()
+    init.main()
+  else:
+    confmgr = ConfigManager()
+
+
+if __name__ == '__main__':
+  main()
+
+
+
