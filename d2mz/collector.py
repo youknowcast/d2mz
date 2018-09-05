@@ -4,8 +4,8 @@ import os
 import hashlib
 
 class Collector():
-  def __init__(self, confmgr, target_dir=None):
-    self.confmgr = confmgr
+  def __init__(self, datamgr, target_dir=None):
+    self.datamgr = datamgr
     if target_dir == None:
       self.target_dir = os.getcwd()
     else:
@@ -35,8 +35,8 @@ class Collector():
       name = 'test'
       tags = []
       meta = {}
-      self.confmgr.insert_or_update_file(sha1, name, tags, meta)
-    self.confmgr.sync_db()
+      self.datamgr.insert_or_update_file(sha1, name, tags, meta)
+    self.datamgr.sync_db()
     print('done')
 
   def calc_sha1(self, path):
@@ -49,6 +49,6 @@ class Collector():
 
 if __name__ == '__main__':
 #  main()
-  from configmanager import ConfigManager
-  collector = Collector(ConfigManager('./'), os.getcwd() + '/tmp/')
+  from datamanager import DataManager
+  collector = Collector(DataManager('./'), os.getcwd() + '/tmp/')
   collector.collect()

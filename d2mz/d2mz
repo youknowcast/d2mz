@@ -4,7 +4,7 @@
 import sys
 import io
 from initializer import Initializer
-from configmanager import ConfigManager
+from datamanager import DataManager
 
 
 argvs = sys.argv
@@ -37,7 +37,7 @@ def main():
     init = Initializer()
     init.main()
   else:
-    confmgr = ConfigManager()
+    datamgr = DataManager()
 
 
 if __name__ == '__main__':

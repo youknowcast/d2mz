@@ -7,7 +7,7 @@ import ConfigParser
 
 from define import Defines as define
 
-class ConfigManager():
+class DataManager():
   def __init__(self, target_dir=None, opt=None):
     if target_dir == None:
       self.target_dir = os.getcwd()
