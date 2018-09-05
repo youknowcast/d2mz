@@ -42,7 +42,7 @@ class Initializer():
 [d2mz]
 local_max_files = {}
 max_file_size = {}
-
+file_type = ['.txt', '.log']
     '''.format(define.CONF_LOCAL_MAX_FILES,
                define.CONF_MAX_FILE_SIZE)
 

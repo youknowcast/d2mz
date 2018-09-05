@@ -10,7 +10,7 @@ from define import Defines as define
 class DataManager():
   def __init__(self, target_dir=None, opt=None):
     if target_dir == None:
-      self.target_dir = os.getcwd()
+      self.target_dir = os.getcwd() + '/'
     else:
       self.target_dir = target_dir
     # confgi を取得
@@ -19,6 +19,8 @@ class DataManager():
     # db キャッシュ作成
     json_f = open(self.target_dir + define.CONF_ROOT + define.CONF_DB, 'r')
     self.db = json.load(json_f)
+  def get_conf_val(self, section, key):
+    return self.conf.get(section, key)
   def get_list(self):
     return self.db['files']
   def sync_db(self):

@@ -20,7 +20,7 @@ class Collector():
 
     targets = os.listdir(current)
     def list_filter(list):
-      allowed = ['.txt', '.png']
+      allowed = self.datamgr.get_conf_val('d2mz', 'file_type')
       def _filter(x):
         r,ext = os.path.splitext(x)
         return ext in allowed
