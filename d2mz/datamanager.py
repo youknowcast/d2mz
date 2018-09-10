@@ -3,7 +3,10 @@
 import os
 import json
 import time
-import ConfigParser
+try:
+  import ConfigParser
+except:
+  import configparser as ConfigParser
 
 from define import Defines as define
 
@@ -33,6 +36,7 @@ class DataManager():
       "meta": meta,
       "update_at": time.time()
     }
+    #print(data)
     if sha1 in self.db['files'].keys():
       self.db['files'][sha1].update(data)
     else:

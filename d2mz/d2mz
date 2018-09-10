@@ -38,6 +38,8 @@ def main():
     init.main()
   else:
     datamgr = DataManager()
+    if mode == 'list':
+      print(str(datamgr.get_list()).decode('unicode-escape'))
 
 
 if __name__ == '__main__':
