@@ -10,7 +10,7 @@ from datamanager import DataManager
 argvs = sys.argv
 argc = len(argvs)
 
-OPTIONS = ['init', 'collect', 'list']
+OPTIONS = ['init', 'collect', 'list', 'conf']
 
 HELP = """d2mz.
 =====================
@@ -38,6 +38,11 @@ def main():
     init.main()
   else:
     datamgr = DataManager()
+    if mode == 'collect':
+      collector = Collector(datamgr)
+      collector.collect()
+    elif mode == 'list':
+      print(datamgr.get_list())
 
 
 if __name__ == '__main__':
