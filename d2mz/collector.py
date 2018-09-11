@@ -1,6 +1,7 @@
 # coding=utf-8
 
 import os
+import re
 import hashlib
 
 class Collector():
@@ -23,18 +24,20 @@ class Collector():
       allowed = self.datamgr.get_conf_val('d2mz', 'file_type')
       def _filter(x):
         r,ext = os.path.splitext(x)
+        #print(ext)
         return ext in allowed
       return filter(_filter, list)
     targets = list_filter(targets)
-    #print(targets)
+    #print(list(targets))
 
     for t in targets:
       tmp_path = current + '/' + t
       # hash
       sha1 = self.calc_sha1(tmp_path)
-      name = 'test'
+      name, meta = self.get_meta_and_name(t)
+      print(name)
+      print(meta)
       tags = []
-      meta = {}
       self.datamgr.insert_or_update_file(sha1, name, tags, meta)
     self.datamgr.sync_db()
     print('done')
@@ -45,7 +48,30 @@ class Collector():
       for chunk in iter(lambda: f.read(10 * sha1.block_size), b''):
         sha1.update(chunk)
     return sha1.hexdigest()
-#  def collect_one():
+  def get_meta_and_name(self, filename):
+    ret = ""
+    meta = {}
+    #print(filename)
+    # ignore ()
+    pattern = u"[(][^)]+[)]"
+    if (re.match(pattern, filename) != None):
+      ret = re.sub(pattern, '', filename, 1)
+    else:
+      ret = filename
+    #print(ret)
+    # [] regard as tags
+    pattern = u"\[[^]]+\]"
+    if (re.match(pattern, ret) != None):
+      author = re.match(pattern, ret).group()
+      ret = re.sub(pattern, '', ret)
+      meta['author'] = self.sub_tag_str(author)
+    return ret, meta
+  def sub_tag_str(self, txt):
+    return txt.translate(str.maketrans({
+        '[': '',
+        ']': ''
+      }))
+
 
 if __name__ == '__main__':
 #  main()

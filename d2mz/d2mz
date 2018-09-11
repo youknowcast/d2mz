@@ -42,7 +42,7 @@ def main():
       collector = Collector(datamgr)
       collector.collect()
     elif mode == 'list':
-      print(datamgr.get_list())
+      print(str(datamgr.get_list()).decode('unicode-escape'))
 
 
 if __name__ == '__main__':
