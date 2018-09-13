@@ -1,8 +1,11 @@
 # coding=utf-8
 
 import os
+import shutil
 import re
 import hashlib
+
+from define import Defines as define
 
 class Collector():
   def __init__(self, datamgr, target_dir=None):
@@ -35,10 +38,10 @@ class Collector():
       # hash
       sha1 = self.calc_sha1(tmp_path)
       name, meta = self.get_meta_and_name(t)
-      print(name)
-      print(meta)
       tags = []
       self.datamgr.insert_or_update_file(sha1, name, tags, meta)
+      ext = os.path.splitext(tmp_path)[1]
+      self.move_file(tmp_path, "{}{}".format(sha1, ext))
     self.datamgr.sync_db()
     print('done')
 
@@ -48,6 +51,7 @@ class Collector():
       for chunk in iter(lambda: f.read(10 * sha1.block_size), b''):
         sha1.update(chunk)
     return sha1.hexdigest()
+
   def get_meta_and_name(self, filename):
     ret = ""
     meta = {}
@@ -66,6 +70,11 @@ class Collector():
       ret = re.sub(pattern, '', ret)
       meta['author'] = self.sub_tag_str(author)
     return ret, meta
+
+  def move_file(self, src, dst):
+    print(dst)
+    shutil.copy(src, self.target_dir + define.CONF_ROOT + define.CONF_STORE)
+
   def sub_tag_str(self, txt):
     return txt.translate(str.maketrans({
         '[': '',
