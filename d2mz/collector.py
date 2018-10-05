@@ -8,8 +8,9 @@ import hashlib
 from define import Defines as define
 
 class Collector():
-  def __init__(self, datamgr):
+  def __init__(self, datamgr, remote_storage=None):
     self.datamgr = datamgr
+    self.remote_storage = remote_storage
 
   def collect(self):
     current = self.datamgr.get_collect_path()
@@ -40,6 +41,8 @@ class Collector():
                                   sha1, ext)
       self.move_file(tmp_path, dst_path)
     self.datamgr.sync_db()
+    if self.remote_storage != None:
+      self.remote_storage.sync()
     print('done')
 
   def calc_sha1(self, path):
@@ -69,7 +72,7 @@ class Collector():
     return ret, meta
 
   def move_file(self, src, dst):
-    print(dst)
+    #print(dst)
     shutil.copy(src, dst)
 
   def sub_tag_str(self, txt):

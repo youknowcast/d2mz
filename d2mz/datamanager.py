@@ -45,10 +45,13 @@ class DataManager():
       "name": name,
       "tags":  tags,
       "meta": meta,
-      "update_at": time.time()
+      "update_at": time.time(),
+      "synced": False,
     }
     #print(data)
     if sha1 in self.db['files'].keys():
+      print("{} is seemed same to {}. merge.".format(name, self.db['files'][sha1]["name"]))
+      # FIXME create merge method and move.
       self.db['files'][sha1].update(data)
     else:
       self.db['files'][sha1] = data
