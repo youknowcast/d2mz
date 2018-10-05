@@ -6,7 +6,11 @@ import json
 from define import Defines as define
 
 class Initializer():
+  """Create meta data directory(.d2mz)  """
   def __init__(self, current=None):
+    """Set default values only.
+    @param current meta data directory path
+    """
     if current == None:
       self.current = "./"
     else:

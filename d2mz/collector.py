@@ -8,18 +8,11 @@ import hashlib
 from define import Defines as define
 
 class Collector():
-  def __init__(self, datamgr, target_dir=None):
+  def __init__(self, datamgr):
     self.datamgr = datamgr
-    if target_dir == None:
-      self.target_dir = os.getcwd()
-    else:
-      self.target_dir = target_dir
-
-#  def main(self):
-    # get data from current dir
 
   def collect(self):
-    current = self.target_dir
+    current = self.datamgr.get_collect_path()
     print('collect from current path({})'.format(current))
 
     targets = os.listdir(current)
@@ -28,6 +21,8 @@ class Collector():
       def _filter(x):
         r,ext = os.path.splitext(x)
         #print(ext)
+        if ext == "":
+          return False
         return ext in allowed
       return filter(_filter, list)
     targets = list_filter(targets)
@@ -41,7 +36,9 @@ class Collector():
       tags = []
       self.datamgr.insert_or_update_file(sha1, name, tags, meta)
       ext = os.path.splitext(tmp_path)[1]
-      self.move_file(tmp_path, "{}{}".format(sha1, ext))
+      dst_path = "{}/{}{}".format(self.datamgr.get_store_path(),
+                                  sha1, ext)
+      self.move_file(tmp_path, dst_path)
     self.datamgr.sync_db()
     print('done')
 
@@ -73,7 +70,7 @@ class Collector():
 
   def move_file(self, src, dst):
     print(dst)
-    shutil.copy(src, self.target_dir + define.CONF_ROOT + define.CONF_STORE)
+    shutil.copy(src, dst)
 
   def sub_tag_str(self, txt):
     return txt.translate(str.maketrans({
@@ -83,7 +80,10 @@ class Collector():
 
 
 if __name__ == '__main__':
-#  main()
+  # for test
+  #   tmp/hoge.log
+  #   .d2mz/
+  #   src
   from datamanager import DataManager
-  collector = Collector(DataManager('./'), os.getcwd() + '/tmp/')
+  collector = Collector(DataManager("./tmp"))
   collector.collect()

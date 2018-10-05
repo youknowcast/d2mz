@@ -11,23 +11,34 @@ except:
 from define import Defines as define
 
 class DataManager():
-  def __init__(self, target_dir=None, opt=None):
-    if target_dir == None:
-      self.target_dir = os.getcwd() + '/'
+  def __init__(self, collect_dir=None, d2mz_dir=None, opt=None):
+    if collect_dir == None:
+      self.collect_dir = os.getcwd() + '/'
     else:
-      self.target_dir = target_dir
+      self.collect_dir = collect_dir
+    if d2mz_dir == None:
+      self.d2mz_dir = "{}/{}/".format(os.getcwd(), define.CONF_ROOT)
+    else:
+      self.d2mz_dir = d2mz_dir
+
     # confgi を取得
     self.conf = ConfigParser.ConfigParser()
-    self.conf.read(self.target_dir + define.CONF_ROOT + define.CONF_FILE)
+    self.conf.read("{}/{}".format(self.d2mz_dir, define.CONF_FILE))
     # db キャッシュ作成
-    json_f = open(self.target_dir + define.CONF_ROOT + define.CONF_DB, 'r')
+    json_f = open("{}/{}".format(self.d2mz_dir, define.CONF_DB), 'r')
     self.db = json.load(json_f)
+  def get_d2mz_path(self):
+    return self.d2mz_dir
+  def get_store_path(self):
+    return "{}/{}".format(self.d2mz_dir, define.CONF_STORE)
+  def get_collect_path(self):
+    return self.collect_dir
   def get_conf_val(self, section, key):
     return self.conf.get(section, key)
   def get_list(self):
     return self.db['files']
   def sync_db(self):
-    json_f = open(self.target_dir + define.CONF_ROOT + define.CONF_DB, 'w')
+    json_f = open("{}/{}".format(self.d2mz_dir, define.CONF_DB), 'w')
     json.dump(self.db, json_f)
   def insert_or_update_file(self, sha1, name, tags, meta, opt=None):
     data = {
