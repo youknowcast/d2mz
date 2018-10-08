@@ -17,7 +17,7 @@ class Initializer():
       self.current = current
 
   def main(self):
-    d2mz_root = self.current + define.CONF_ROOT
+    d2mz_root = "{}/{}".format(self.current, define.CONF_ROOT)
     print('create ./d2mz directory(target: {})..'.format(d2mz_root))
     self.create_dir( d2mz_root )
     self.create_dir( d2mz_root + define.CONF_STORE )

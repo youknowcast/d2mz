@@ -19,7 +19,7 @@ class DataManager():
     if d2mz_dir == None:
       self.d2mz_dir = "{}/{}/".format(os.getcwd(), define.CONF_ROOT)
     else:
-      self.d2mz_dir = d2mz_dir
+      self.d2mz_dir = "{}/{}/".format(d2mz_dir, define.CONF_ROOT)
 
     # confgi を取得
     self.conf = ConfigParser.ConfigParser()
