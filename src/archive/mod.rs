@@ -14,6 +14,7 @@ pub mod ingest;
 pub mod list;
 pub mod lock;
 pub mod sync;
+pub mod thumb;
 
 use db::Index;
 

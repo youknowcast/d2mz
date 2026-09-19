@@ -39,6 +39,8 @@ pub enum Command {
     Open(OpenArgs),
     /// Manage application handlers used by `open`.
     Handler(HandlerArgs),
+    /// Show or locate the cached thumbnail for a media object.
+    Thumb(ThumbArgs),
     /// List archived entries.
     Archive(ArchiveArgs),
     /// Write an archived blob back out to a URI.
@@ -246,6 +248,21 @@ pub struct OpenArgs {
     /// Print the resolved path instead of opening anything.
     #[arg(short, long)]
     pub print: bool,
+}
+
+/// Arguments for `d2mz thumb`.
+#[derive(Debug, Args)]
+pub struct ThumbArgs {
+    /// Target URI (must already be ingested so it has a content hash).
+    pub uri: String,
+
+    /// Print the thumbnail path instead of displaying it.
+    #[arg(short, long)]
+    pub print: bool,
+
+    /// Also print the dimensions and format.
+    #[arg(short, long)]
+    pub long: bool,
 }
 
 /// Arguments for `d2mz handler`.

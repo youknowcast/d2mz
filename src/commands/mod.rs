@@ -15,6 +15,7 @@ pub mod search;
 pub mod stat;
 pub mod sync;
 pub mod tag;
+pub mod thumb;
 
 use anyhow::Result;
 
@@ -60,6 +61,10 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Open(args) => {
             let archive = Archive::open(&archive_dir)?;
             open::run(&mut backends, &archive, args).await
+        }
+        Command::Thumb(args) => {
+            let archive = Archive::open(&archive_dir)?;
+            thumb::run(&mut backends, &archive, args).await
         }
         Command::Archive(args) => {
             let archive = Archive::open(&archive_dir)?;

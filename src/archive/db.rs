@@ -116,6 +116,23 @@ pub struct Handler {
     pub origin: String,
 }
 
+/// A cached thumbnail for a blob.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Thumb {
+    /// BLAKE3 hash of the source blob.
+    pub blob_hash: String,
+    /// Thumbnail width in pixels.
+    pub width: u32,
+    /// Thumbnail height in pixels.
+    pub height: u32,
+    /// Storage format, e.g. `webp`.
+    pub format: String,
+    /// Encoded size in bytes.
+    pub size: u64,
+    /// Unix creation timestamp.
+    pub created_at: i64,
+}
+
 /// A raw entry row, exchanged during sync.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EntryRow {
@@ -273,6 +290,15 @@ impl Index {
                 updated_at INTEGER NOT NULL,
                 origin     TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (kind, matcher)
+            );
+
+            CREATE TABLE IF NOT EXISTS thumb (
+                blob_hash  TEXT PRIMARY KEY,
+                width      INTEGER NOT NULL,
+                height     INTEGER NOT NULL,
+                format     TEXT NOT NULL,
+                size       INTEGER NOT NULL,
+                created_at INTEGER NOT NULL
             );
 
             CREATE VIRTUAL TABLE IF NOT EXISTS entry_fts USING fts5(
@@ -682,6 +708,64 @@ impl Index {
         Ok(true)
     }
 
+    /// Record a generated thumbnail.
+    pub fn set_thumb(
+        &self,
+        blob_hash: &str,
+        width: u32,
+        height: u32,
+        format: &str,
+        size: u64,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO thumb(blob_hash, width, height, format, size, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(blob_hash) DO UPDATE SET
+                 width = excluded.width, height = excluded.height,
+                 format = excluded.format, size = excluded.size,
+                 created_at = excluded.created_at",
+            params![
+                blob_hash,
+                width as i64,
+                height as i64,
+                format,
+                u64_to_i64(size),
+                unix_secs()
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// The thumbnail record for a blob, if one exists.
+    pub fn thumb(&self, blob_hash: &str) -> Result<Option<Thumb>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT blob_hash, width, height, format, size, created_at
+                 FROM thumb WHERE blob_hash = ?1",
+                [blob_hash],
+                row_to_thumb,
+            )
+            .optional()?)
+    }
+
+    /// Remove a thumbnail record. Returns whether it existed.
+    pub fn remove_thumb(&self, blob_hash: &str) -> Result<bool> {
+        let changed = self
+            .conn
+            .execute("DELETE FROM thumb WHERE blob_hash = ?1", [blob_hash])?;
+        Ok(changed > 0)
+    }
+
+    /// Every thumbnail record, newest first.
+    pub fn thumbs(&self) -> Result<Vec<Thumb>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT blob_hash, width, height, format, size, created_at FROM thumb ORDER BY created_at DESC")?;
+        let rows = stmt.query_map([], row_to_thumb)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     /// Full-text search over names, paths, sources and tags.
     pub fn search(&self, query: &str) -> Result<Vec<Entry>> {
         let mut stmt = self.conn.prepare(
@@ -936,6 +1020,17 @@ fn row_to_handler(row: &rusqlite::Row<'_>) -> rusqlite::Result<Handler> {
         app: row.get(2)?,
         updated_at: row.get(3)?,
         origin: row.get(4)?,
+    })
+}
+
+fn row_to_thumb(row: &rusqlite::Row<'_>) -> rusqlite::Result<Thumb> {
+    Ok(Thumb {
+        blob_hash: row.get(0)?,
+        width: row.get::<_, i64>(1)? as u32,
+        height: row.get::<_, i64>(2)? as u32,
+        format: row.get(3)?,
+        size: i64_to_u64(row.get(4)?),
+        created_at: row.get(5)?,
     })
 }
 
