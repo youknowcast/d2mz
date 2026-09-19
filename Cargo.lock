@@ -367,6 +367,7 @@ dependencies = [
  "anyhow",
  "clap",
  "dirs",
+ "futures",
  "opendal",
  "serde",
  "serde_json",
