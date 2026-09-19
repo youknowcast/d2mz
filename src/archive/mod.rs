@@ -31,6 +31,8 @@ impl Archive {
         fs::create_dir_all(root.join("store"))
             .with_context(|| format!("creating archive store at {}", root.display()))?;
         let index = Index::open(&root.join("index.sqlite3"))?;
+        // Best-effort housekeeping: drop temp files from a crashed ingest.
+        sweep_temp_files(&root);
         Ok(Archive { root, index })
     }
 
@@ -67,4 +69,25 @@ pub fn blob_relative_path(hash: &str) -> PathBuf {
         hash.get(2..4).unwrap_or("00"),
     );
     Path::new(a).join(b).join(hash)
+}
+
+/// Remove leftover `.tmp.*` files from interrupted ingests.
+///
+/// Ingest writes to `store/.tmp.<pid>.<n>` and renames it into place; a
+/// crash can leave one behind. They are never referenced, so clearing them
+/// is always safe.
+fn sweep_temp_files(root: &Path) {
+    let store = root.join("store");
+    let Ok(entries) = fs::read_dir(&store) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if name.starts_with(".tmp.") {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
 }

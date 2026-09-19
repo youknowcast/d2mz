@@ -60,6 +60,12 @@ async fn collect(operator: &Operator, prefix: &str, recursive: bool) -> Result<V
     // The target itself is echoed back by some backends; drop it.
     let self_path = prefix.trim_end_matches('/');
     entries.retain(|entry| entry.path().trim_end_matches('/') != self_path);
-    entries.sort_by(|a, b| a.path().cmp(b.path()));
+
+    // Directories first, then by path, matching a normal `ls`.
+    entries.sort_by(|a, b| {
+        let a_dir = a.metadata().is_dir();
+        let b_dir = b.metadata().is_dir();
+        b_dir.cmp(&a_dir).then_with(|| a.path().cmp(b.path()))
+    });
     Ok(entries)
 }

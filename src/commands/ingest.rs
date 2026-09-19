@@ -3,7 +3,7 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 
 use crate::archive::Archive;
 use crate::archive::db::Entry;
-use crate::archive::ingest::{IngestOutcome, ingest};
+use crate::archive::ingest::{IngestOutcome, ingest, unix_now};
 use crate::archive::list::EntryRecord;
 use crate::backend::Backends;
 use crate::browse;
@@ -13,6 +13,7 @@ use crate::uri::Uri;
 pub async fn run(backends: &mut Backends, archive: &Archive, args: IngestArgs) -> Result<()> {
     let filter = build_glob(args.name.as_deref())?;
     let mut outcomes: Vec<IngestOutcome> = Vec::new();
+    let mut missing = 0usize;
 
     for raw in &args.uris {
         let uri = Uri::parse(raw)?;
@@ -22,7 +23,10 @@ pub async fn run(backends: &mut Backends, archive: &Archive, args: IngestArgs) -
         if targets.is_empty() {
             anyhow::bail!("no ingestable objects found at {uri}");
         }
+
+        let mut seen = std::collections::HashSet::new();
         for (path, name) in targets {
+            seen.insert(format!("mz://{}/{path}", uri.backend()));
             let outcome = ingest(
                 archive,
                 &operator,
@@ -33,7 +37,9 @@ pub async fn run(backends: &mut Backends, archive: &Archive, args: IngestArgs) -
             )
             .await?;
             let short = &outcome.hash[..12.min(outcome.hash.len())];
-            if outcome.deduplicated {
+            if outcome.unchanged {
+                eprintln!("unchanged {}", outcome.source);
+            } else if outcome.deduplicated {
                 eprintln!(
                     "deduplicated {} (blob {short} already present)",
                     outcome.source
@@ -46,6 +52,12 @@ pub async fn run(backends: &mut Backends, archive: &Archive, args: IngestArgs) -
             }
             outcomes.push(outcome);
         }
+
+        // A recursive ingest already enumerated everything under the prefix,
+        // so it can retire whatever was there before and is now gone.
+        if args.recursive {
+            missing += sweep_missing(archive, &uri, &seen)?;
+        }
     }
 
     if args.json || args.long {
@@ -57,6 +69,7 @@ pub async fn run(backends: &mut Backends, archive: &Archive, args: IngestArgs) -
                 hash: outcome.hash.clone(),
                 size: outcome.size,
                 deduplicated: outcome.deduplicated,
+                unchanged: outcome.unchanged,
             })
             .collect();
         if args.json {
@@ -72,7 +85,44 @@ pub async fn run(backends: &mut Backends, archive: &Archive, args: IngestArgs) -
             }
         }
     }
+    if missing > 0 {
+        eprintln!("marked {missing} vanished source(s) as missing");
+    }
     Ok(())
+}
+
+/// Mark entries under `uri` that were not seen in this pass as missing.
+///
+/// Only sources whose URI falls under the ingested prefix are considered, so
+/// an ingest of one subtree never touches another.
+fn sweep_missing(
+    archive: &Archive,
+    uri: &Uri,
+    seen: &std::collections::HashSet<String>,
+) -> Result<usize> {
+    let prefix = format!("mz://{}/{}", uri.backend(), prefix_of(uri.path()));
+    let mut count = 0;
+    for entry in archive.index().entries_for_prefix(&prefix)? {
+        if entry.state == crate::archive::db::EntryState::Deleted {
+            continue;
+        }
+        if !seen.contains(&entry.source) && entry.state != crate::archive::db::EntryState::Missing {
+            archive.index().mark_missing(entry.id, unix_now())?;
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
+/// The prefix form of a URI, so directory-like paths sweep only below them.
+fn prefix_of(path: &str) -> String {
+    if path.is_empty() {
+        String::new()
+    } else if path.ends_with('/') {
+        path.to_string()
+    } else {
+        format!("{path}/")
+    }
 }
 
 /// Serializable summary of one ingest.
@@ -83,6 +133,7 @@ struct IngestRecord {
     hash: String,
     size: u64,
     deduplicated: bool,
+    unchanged: bool,
 }
 
 /// Resolve the objects to ingest from a URI.
