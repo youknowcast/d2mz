@@ -59,27 +59,33 @@ children via `list_with(prefix).recursive(false)`, treats the target as a
 prefix (trailing slash), drops the target echoed back by some backends, and
 sorts by path. When the target is a file it is shown as a single entry.
 
-## Archive (planned)
+## Archive
 
-- Content addressing with **BLAKE3**; blobs stored under
-  `store/<hash[0:2]>/<hash[2:]>`.
+- Content addressing with **BLAKE3**; blobs sharded as
+  `store/<hash[0:2]>/<hash[2:4]>/<hash>`. Bytes are streamed to a temporary
+  file while hashing, then renamed into place, so ingest is atomic and
+  memory stays flat for large objects.
 - SQLite index (`rusqlite`, bundled):
 
   ```sql
-  blob(hash PK, size, created_at, refcount)
-  entry(id, blob_hash FK, name, source_uri, ext, size, mtime, created_at)
-  tag(entry_id FK, tag)
-  meta(entry_id FK, key, value)
+  blob(hash PK, size, created_at)
+  entry(id, blob_hash FK, name, path, source, size, created_at)
   ```
 
-- Ingest is non-destructive (copy, never move) and deduplicated by hash.
+  `blob` rows are unique contents; `entry` rows are named sightings. Many
+  entries may point at one blob, which is exactly deduplication. Tags and
+  metadata tables (`tag`, `meta`) arrive in M4.
+- Ingest is non-destructive (copy, never move). `export` resolves a hash
+  prefix to a blob and writes it back to any backend.
+- The index opens with WAL mode; SQLite stores sizes as `i64`, converted at
+  the boundary.
 
 ## Roadmap
 
 - **M0** (done) config, MZ resolver, `ls` / `cat` / `stat` on local files.
 - **M1** (done) `find`, recursive listing, name/size filters.
 - **M2** (done) S3-compatible backend, verified against RustFS.
-- **M3** archive schema + `ingest` + BLAKE3 dedup.
+- **M3** (done) archive schema, `ingest` / `export`, BLAKE3 dedup.
 - **M4** tags and search (SQLite FTS5).
 - **M5** static musl build, shell completions, man page.
 
