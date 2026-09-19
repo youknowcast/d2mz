@@ -11,9 +11,10 @@ use opendal::Operator;
 use tokio::io::AsyncWriteExt;
 
 use crate::archive::Archive;
+use crate::archive::thumb::{GeneratedThumb, ensure};
 
 /// What an ingest produced.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct IngestOutcome {
     /// BLAKE3 hash of the contents.
     pub hash: String,
@@ -25,15 +26,21 @@ pub struct IngestOutcome {
     pub entry_id: i64,
     /// Fully qualified URI of the object that was ingested.
     pub source: String,
+    /// A thumbnail, when one was generated or already cached.
+    pub thumb: Option<GeneratedThumb>,
 }
 
 /// Copy an object from `operator` into the archive.
+///
+/// When `thumbnails` is set, a thumbnail is generated while the bytes are
+/// already in hand, so browsing later never re-reads the source.
 pub async fn ingest(
     archive: &Archive,
     operator: &Operator,
     backend: &str,
     path: &str,
     name: &str,
+    thumbnails: bool,
 ) -> Result<IngestOutcome> {
     let source = format!("mz://{backend}/{path}");
     let metadata = operator
@@ -108,12 +115,21 @@ pub async fn ingest(
             .insert_entry(&hash, name, path, &source, size, now, mtime)?,
     };
 
+    // Generate a thumbnail now, while the source read is already paid for.
+    let kind = crate::commands::open::kind_of(name);
+    let thumb = if thumbnails {
+        ensure(archive, &hash, kind).unwrap_or(None)
+    } else {
+        None
+    };
+
     Ok(IngestOutcome {
         hash,
         size,
         deduplicated: existed,
         entry_id,
         source,
+        thumb,
     })
 }
 
@@ -137,12 +153,13 @@ pub async fn ingest_from_entry(
     operator: &Operator,
     entry: &crate::archive::db::Entry,
     backend: &str,
+    thumbnails: bool,
 ) -> Result<IngestOutcome> {
     let path = entry
         .source
         .strip_prefix(&format!("mz://{backend}/"))
         .unwrap_or(&entry.path);
-    ingest(archive, operator, backend, path, &entry.name).await
+    ingest(archive, operator, backend, path, &entry.name, thumbnails).await
 }
 
 /// Seconds since the Unix epoch.

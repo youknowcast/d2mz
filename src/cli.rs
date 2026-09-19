@@ -174,6 +174,10 @@ pub struct IngestArgs {
     #[arg(short = 'R', long)]
     pub recursive: bool,
 
+    /// Skip thumbnail generation for media objects.
+    #[arg(long)]
+    pub no_thumb: bool,
+
     /// Show a long listing.
     #[arg(short, long)]
     pub long: bool,
@@ -189,6 +193,10 @@ pub struct ScanArgs {
     /// Only re-check entries whose source URI starts with these prefixes.
     #[arg(value_name = "PREFIX")]
     pub prefixes: Vec<String>,
+
+    /// Generate thumbnails for media that does not have one yet.
+    #[arg(long)]
+    pub thumb: bool,
 
     /// Emit the results as JSON.
     #[arg(long)]

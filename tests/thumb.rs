@@ -110,6 +110,38 @@ fn adler32(data: &[u8]) -> u32 {
 }
 
 #[test]
+fn ingest_generates_thumbnails_by_default() {
+    let archive = tempfile::tempdir().unwrap();
+    let src = tempfile::tempdir().unwrap();
+    let image = src.path().join("photo.png");
+    let text = src.path().join("notes.txt");
+    write_png(&image, 320, 240);
+    fs::write(&text, "hello\n").unwrap();
+
+    run(d2mz(archive.path()).args(["ingest"]).arg(&image).arg(&text));
+
+    let thumbs = count_files(&archive.path().join("data").join("thumb"));
+    assert_eq!(thumbs, 1, "only the image gets a thumbnail");
+}
+
+#[test]
+fn no_thumb_defers_generation_to_scan() {
+    let archive = tempfile::tempdir().unwrap();
+    let src = tempfile::tempdir().unwrap();
+    let image = src.path().join("photo.png");
+    write_png(&image, 320, 240);
+
+    run(d2mz(archive.path())
+        .args(["ingest", "--no-thumb"])
+        .arg(&image));
+    assert_eq!(count_files(&archive.path().join("data").join("thumb")), 0);
+
+    // `scan --thumb` backfills from the local blob store.
+    run(d2mz(archive.path()).args(["scan", "--thumb"]));
+    assert_eq!(count_files(&archive.path().join("data").join("thumb")), 1);
+}
+
+#[test]
 fn image_thumbnail_is_generated_and_cached() {
     let archive = tempfile::tempdir().unwrap();
     let src = tempfile::tempdir().unwrap();
@@ -190,4 +222,24 @@ fn thumb_requires_an_archived_source() {
 #[allow(dead_code)]
 fn keep(dir: &TempDir) -> &Path {
     dir.path()
+}
+
+/// Count files below `dir`, treating a missing directory as empty.
+fn count_files(dir: &Path) -> usize {
+    let mut count = 0;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&current) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                count += 1;
+            }
+        }
+    }
+    count
 }

@@ -60,9 +60,16 @@ pub async fn run(backends: &mut Backends, archive: &Archive, args: ScanArgs) -> 
                         mtime,
                         unix_now(),
                     )?;
+                    // `--thumb` backfills thumbnails for already-ingested
+                    // media, reading the blob from the local store.
+                    if args.thumb {
+                        let kind = crate::commands::open::kind_of(&entry.name);
+                        let _ = crate::archive::thumb::ensure(archive, &entry.blob, kind);
+                    }
                     ("present", false)
                 } else {
-                    ingest_from_entry(archive, &operator, &entry, uri.backend()).await?;
+                    ingest_from_entry(archive, &operator, &entry, uri.backend(), args.thumb)
+                        .await?;
                     ("present", true)
                 }
             }

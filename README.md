@@ -115,16 +115,24 @@ Media thumbnails are generated once, keyed by the blob's BLAKE3 hash, and
 cached under `archive_dir/thumb/` — identical contents share one thumbnail,
 and **no network access happens after the first read**.
 
+`ingest` generates them by default while the bytes are already in hand, so
+there is no extra fetch. Pass `--no-thumb` to skip, and use `scan --thumb`
+later to backfill.
+
 ```sh
-d2mz thumb ./photo.png                # render in the terminal (if a viewer exists)
-d2mz thumb -l ./photo.png             # also print dimensions
-d2mz thumb --print ./photo.png        # just the cached path
+d2mz ingest -R ./photos                 # thumbnails made as part of ingest
+d2mz ingest --no-thumb ./big-dump       # skip for a bulk import
+d2mz scan --thumb                       # backfill existing media
+
+d2mz thumb ./photo.png                  # render in the terminal (if a viewer exists)
+d2mz thumb -l ./photo.png               # also print dimensions
+d2mz thumb --print ./photo.png          # just the cached path
 ```
 
 Images are resized in-process (`image` crate). Videos use `ffmpeg` for the
-first frame when it is installed; otherwise the command falls back to the
-blob path. Terminal rendering uses `chafa`, `viu`, `tiv` or `img2txt` if one
-is present, and otherwise just reports the path.
+first frame when it is installed; otherwise they are skipped. Terminal
+rendering uses `chafa`, `viu`, `tiv` or `img2txt` if one is present, and
+otherwise just reports the path.
 
 ### Source presence
 

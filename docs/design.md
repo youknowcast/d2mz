@@ -219,9 +219,13 @@ format, size, created_at)`. Two properties follow from content addressing:
 - a thumbnail is generated **once**, on first use, so browsing never costs
   extra network reads.
 
-Images are decoded and resized in-process (`image` crate, pure Rust). Video
-frames come from `ffmpeg` when present. Terminal rendering prefers `chafa`,
-`viu`, `tiv` or `img2txt`, falling back to reporting the path.
+Generation is on by default at an ingest, because the bytes are already being
+streamed — the thumbnail costs no extra fetch. `--no-thumb` skips it for bulk
+imports, and `scan --thumb` backfills by reading the local blob store (no
+source is contacted). Images are decoded and resized in-process (`image`
+crate, pure Rust); video frames come from `ffmpeg` when present, and are
+otherwise skipped. Terminal rendering prefers `chafa`, `viu`, `tiv` or
+`img2txt`, falling back to reporting the path.
 
 ## Static builds
 
