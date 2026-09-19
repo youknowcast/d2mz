@@ -119,6 +119,10 @@ pub struct LsArgs {
 pub struct CatArgs {
     /// Target URI.
     pub uri: String,
+
+    /// Write binary content to the terminal anyway.
+    #[arg(short, long)]
+    pub force: bool,
 }
 
 /// Arguments for `d2mz stat`.

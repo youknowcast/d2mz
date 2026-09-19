@@ -54,7 +54,12 @@ pub async fn run(backends: &mut Backends, archive: Option<&Archive>, args: FindA
         true
     });
 
-    browse::print_views(&views, args.long, args.json)
+    browse::print_views(&views, args.long, args.json)?;
+    if views.is_empty() {
+        // Match grep: no matches is a distinct, script-friendly exit.
+        std::process::exit(1);
+    }
+    Ok(())
 }
 
 /// Entry views for an archived prefix, or `None` when nothing is recorded.

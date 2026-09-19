@@ -238,7 +238,9 @@ fn resolve_command(
         return Ok(default);
     }
     bail!(
-        "no application for {kind:?}; set one with `d2mz handler set {} --app '...'`",
+        "no application for kind {}; set one with \
+         `d2mz handler set {} --app '<command> {{}}'`",
+        kind.as_str(),
         kind.as_str()
     )
 }
@@ -247,7 +249,11 @@ fn resolve_command(
 fn builtin(kind: Kind) -> Option<String> {
     match kind {
         Kind::Text => Some(format!("{} {{}}", pager())),
-        _ => os_opener().map(|opener| format!("{opener} {{}}")),
+        _ => os_opener()
+            // Only offer the OS opener when it actually exists, so the
+            // failure message can point at handlers instead.
+            .filter(|opener| on_path(opener))
+            .map(|opener| format!("{opener} {{}}")),
     }
 }
 
@@ -352,6 +358,17 @@ fn launch(command: &str, path: &std::path::Path) -> Result<()> {
     } else {
         split_command(command)
     };
+
+    // Say what is about to run, so a handler taking effect is visible.
+    eprintln!("opening with: {command}");
+
+    if !on_path(&program) {
+        bail!(
+            "{program} is not on PATH; set a handler with \
+             `d2mz handler set <kind> --app '<command> {{}}'` or use `--with`"
+        );
+    }
+
     let status = Command::new(&program)
         .args(&args)
         .status()
@@ -360,6 +377,20 @@ fn launch(command: &str, path: &std::path::Path) -> Result<()> {
         bail!("{program} exited with {status}");
     }
     Ok(())
+}
+
+/// Whether `program` can be found on `PATH` (or is an explicit path).
+fn on_path(program: &str) -> bool {
+    if program.contains('/') {
+        return std::path::Path::new(program).is_file();
+    }
+    let Some(path) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&path).any(|dir| {
+        let candidate = dir.join(program);
+        candidate.is_file()
+    })
 }
 
 /// Split a command line into program and arguments, honouring simple quotes.

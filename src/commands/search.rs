@@ -26,6 +26,8 @@ pub fn run(archive: &Archive, args: SearchArgs) -> Result<()> {
             "no matches for {:?} (searches ingested entries only)",
             args.query
         );
+        // Match grep: no results is a distinct, script-friendly exit.
+        std::process::exit(1);
     } else if !args.json && records.len() > 1 {
         let bytes: u64 = records.iter().map(|record| record.size).sum();
         eprintln!(
