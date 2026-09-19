@@ -83,8 +83,7 @@ impl Config {
         let mut config: Config = if path.exists() {
             let text = fs::read_to_string(path)
                 .with_context(|| format!("reading config {}", path.display()))?;
-            toml::from_str(&text)
-                .with_context(|| format!("parsing config {}", path.display()))?
+            toml::from_str(&text).with_context(|| format!("parsing config {}", path.display()))?
         } else {
             Config::default()
         };

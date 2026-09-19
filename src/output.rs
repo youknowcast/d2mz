@@ -64,10 +64,7 @@ impl EntryView {
             None => "-".to_string(),
         };
         let modified = self.modified.as_deref().unwrap_or("-");
-        format!(
-            "{kind} {size:>8} {modified:<20} {}",
-            self.plain()
-        )
+        format!("{kind} {size:>8} {modified:<20} {}", self.plain())
     }
 }
 
@@ -110,18 +107,12 @@ impl ObjectView {
 
     /// Multi-line human-readable rendering.
     pub fn verbose(&self) -> String {
-        let size = self
-            .size
-            .map(human_size)
-            .unwrap_or_else(|| "-".to_string());
+        let size = self.size.map(human_size).unwrap_or_else(|| "-".to_string());
         let mut lines = vec![
             format!("uri:          {}", self.uri),
             format!("type:         {}", self.kind),
             format!("size:         {size}"),
-            format!(
-                "modified:     {}",
-                self.modified.as_deref().unwrap_or("-")
-            ),
+            format!("modified:     {}", self.modified.as_deref().unwrap_or("-")),
         ];
         if let Some(content_type) = &self.content_type {
             lines.push(format!("content-type: {content_type}"));

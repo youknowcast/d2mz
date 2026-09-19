@@ -54,7 +54,11 @@ impl Backends {
 
     /// Names of all configured backends, in declaration order.
     pub fn names(&self) -> Vec<&str> {
-        self.config.backends.iter().map(|b| b.name.as_str()).collect()
+        self.config
+            .backends
+            .iter()
+            .map(|b| b.name.as_str())
+            .collect()
     }
 }
 
