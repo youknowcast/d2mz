@@ -1,0 +1,9 @@
+[package]
+name = "d2mz"
+version = "0.1.0"
+edition = "2024"
+description = "Door 2 MeriaZard — a unified CLI browser and archive over local and remote data sources"
+license = "MIT"
+repository = "https://github.com/youknowcast/d2mz"
+
+[dependencies]
