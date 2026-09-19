@@ -37,6 +37,10 @@ pub struct LsArgs {
     #[arg(short, long)]
     pub long: bool,
 
+    /// List every entry below the target.
+    #[arg(short = 'R', long)]
+    pub recursive: bool,
+
     /// Emit the listing as JSON.
     #[arg(long)]
     pub json: bool,
