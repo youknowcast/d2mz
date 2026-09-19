@@ -10,7 +10,8 @@ use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
 
 /// Whether an entry's source still exists, as of the last scan.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum EntryState {
     /// Confirmed present by the most recent scan.
     Present,
@@ -87,6 +88,44 @@ pub struct TagStat {
     pub tag: String,
     /// Number of entries carrying the tag.
     pub entries: i64,
+}
+
+/// A raw blob row, exchanged during sync.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BlobRow {
+    /// BLAKE3 hash.
+    pub hash: String,
+    /// Size in bytes.
+    pub size: u64,
+    /// Unix creation timestamp.
+    pub created_at: i64,
+}
+
+/// A raw entry row, exchanged during sync.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EntryRow {
+    /// BLAKE3 hash of the contents.
+    pub blob: String,
+    /// Display name.
+    pub name: String,
+    /// Backend-relative path.
+    pub path: String,
+    /// Source URI; the sync key.
+    pub source: String,
+    /// Size in bytes.
+    pub size: u64,
+    /// Unix creation timestamp.
+    pub created_at: i64,
+    /// Source mtime, when known.
+    pub mtime: Option<i64>,
+    /// Observed presence state.
+    pub state: EntryState,
+    /// Unix timestamp of the last scan.
+    pub seen_at: Option<i64>,
+    /// Unix timestamp of the last write.
+    pub updated_at: i64,
+    /// Node that made the last write.
+    pub origin: String,
 }
 
 /// The archive metadata index.
@@ -170,6 +209,7 @@ impl Index {
 
             CREATE INDEX IF NOT EXISTS entry_blob ON entry(blob_hash);
             CREATE INDEX IF NOT EXISTS entry_source ON entry(source);
+            CREATE UNIQUE INDEX IF NOT EXISTS entry_source_unique ON entry(source);
 
             CREATE TABLE IF NOT EXISTS tag (
                 entry_id INTEGER NOT NULL REFERENCES entry(id) ON DELETE CASCADE,
@@ -209,6 +249,31 @@ impl Index {
                  CREATE INDEX IF NOT EXISTS entry_updated ON entry(updated_at);",
             )
             .context("indexing entry columns")?;
+        self.dedupe_entry_sources()?;
+        self.conn
+            .execute_batch(
+                "CREATE UNIQUE INDEX IF NOT EXISTS entry_source_unique ON entry(source);",
+            )
+            .context("uniquifying entry sources")?;
+        Ok(())
+    }
+
+    /// Collapse earlier duplicate `source` rows to a single newest row.
+    ///
+    /// Older builds could record the same source twice; the unique index
+    /// needs those merged first.
+    fn dedupe_entry_sources(&self) -> Result<()> {
+        self.conn
+            .execute_batch(
+                "DELETE FROM entry WHERE id NOT IN (
+                     SELECT id FROM (
+                         SELECT id, ROW_NUMBER() OVER (
+                             PARTITION BY source ORDER BY updated_at DESC, id DESC
+                         ) AS rn FROM entry
+                     ) WHERE rn = 1
+                 );",
+            )
+            .context("collapsing duplicate entry sources")?;
         Ok(())
     }
 
@@ -263,7 +328,17 @@ impl Index {
     ) -> Result<i64> {
         self.conn.execute(
             "INSERT INTO entry(blob_hash, name, path, source, size, created_at, mtime, state, seen_at, updated_at, origin)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'present', ?6, ?6, ?8)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'present', ?6, ?6, ?8)
+             ON CONFLICT(source) DO UPDATE SET
+                 blob_hash = excluded.blob_hash,
+                 name      = excluded.name,
+                 path      = excluded.path,
+                 size      = excluded.size,
+                 mtime     = excluded.mtime,
+                 state     = 'present',
+                 seen_at   = excluded.seen_at,
+                 updated_at = excluded.updated_at,
+                 origin    = excluded.origin",
             params![
                 blob,
                 name,
@@ -275,7 +350,10 @@ impl Index {
                 self.node
             ],
         )?;
-        let id = self.conn.last_insert_rowid();
+        let id = self
+            .entry_by_source(source)?
+            .map(|entry| entry.id)
+            .unwrap_or(0);
         self.fts_upsert(id, name, path, source)?;
         Ok(id)
     }
@@ -522,6 +600,130 @@ impl Index {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
+    /// Every blob row, for sync.
+    pub fn blob_rows(&self) -> Result<Vec<BlobRow>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT hash, size, created_at FROM blob ORDER BY hash")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(BlobRow {
+                hash: row.get(0)?,
+                size: i64_to_u64(row.get(1)?),
+                created_at: row.get(2)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Every entry row, for sync.
+    pub fn entry_rows(&self) -> Result<Vec<EntryRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT blob_hash, name, path, source, size, created_at, mtime, state,
+                    seen_at, updated_at, origin
+             FROM entry ORDER BY source",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let state: String = row.get(7)?;
+            Ok(EntryRow {
+                blob: row.get(0)?,
+                name: row.get(1)?,
+                path: row.get(2)?,
+                source: row.get(3)?,
+                size: i64_to_u64(row.get(4)?),
+                created_at: row.get(5)?,
+                mtime: row.get(6)?,
+                state: EntryState::parse(&state),
+                seen_at: row.get(8)?,
+                updated_at: row.get(9)?,
+                origin: row.get(10)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Every (source, tag) pair, for sync.
+    pub fn tag_rows(&self) -> Result<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT e.source, t.tag FROM tag t JOIN entry e ON e.id = t.entry_id
+             ORDER BY e.source, t.tag",
+        )?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Every (source, key, value) triple, for sync.
+    pub fn meta_rows(&self) -> Result<Vec<(String, String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT e.source, m.key, m.value FROM meta m JOIN entry e ON e.id = m.entry_id
+             ORDER BY e.source, m.key",
+        )?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Insert or overwrite a blob row exactly as given (sync apply).
+    pub fn upsert_blob_row(&self, row: &BlobRow) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO blob(hash, size, created_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(hash) DO UPDATE SET size = excluded.size",
+            params![row.hash, u64_to_i64(row.size), row.created_at],
+        )?;
+        Ok(())
+    }
+
+    /// Insert or overwrite an entry row keyed by source (sync apply).
+    ///
+    /// The incoming row wins only when its `updated_at` is at least as new as
+    /// the local one, which is last-writer-wins.
+    pub fn upsert_entry_row(&self, row: &EntryRow) -> Result<bool> {
+        if let Some(existing) = self.entry_by_source(&row.source)?
+            && existing.updated_at > row.updated_at
+        {
+            return Ok(false);
+        }
+        self.conn.execute(
+            "INSERT INTO entry(blob_hash, name, path, source, size, created_at, mtime,
+                               state, seen_at, updated_at, origin)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+             ON CONFLICT(source) DO UPDATE SET
+                 blob_hash = excluded.blob_hash,
+                 name      = excluded.name,
+                 path      = excluded.path,
+                 size      = excluded.size,
+                 mtime     = excluded.mtime,
+                 state     = excluded.state,
+                 seen_at   = excluded.seen_at,
+                 updated_at = excluded.updated_at,
+                 origin    = excluded.origin",
+            params![
+                row.blob,
+                row.name,
+                row.path,
+                row.source,
+                u64_to_i64(row.size),
+                row.created_at,
+                row.mtime,
+                row.state.as_str(),
+                row.seen_at,
+                row.updated_at,
+                row.origin
+            ],
+        )?;
+        if let Some(entry) = self.entry_by_source(&row.source)? {
+            self.fts_refresh(entry.id)?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// Add a tag by source (sync apply); tags are a set union.
+    pub fn add_tag_by_source(&self, source: &str, tag: &str) -> Result<bool> {
+        let Some(entry) = self.entry_by_source(source)? else {
+            return Ok(false);
+        };
+        self.add_tag(entry.id, tag)
+    }
+
     /// Entries under a given path prefix.
     pub fn entries_under(&self, prefix: &str) -> Result<Vec<Entry>> {
         let mut stmt = self.conn.prepare(
@@ -665,10 +867,26 @@ mod tests {
         let index = Index::open_in_memory().unwrap();
         index.insert_blob("abc", 1, 1).unwrap();
         index
-            .insert_entry("abc", "x", "logs/a.txt", "s", 1, 1, None)
+            .insert_entry(
+                "abc",
+                "x",
+                "logs/a.txt",
+                "mz://local/logs/a.txt",
+                1,
+                1,
+                None,
+            )
             .unwrap();
         index
-            .insert_entry("abc", "y", "notes/b.txt", "s", 1, 1, None)
+            .insert_entry(
+                "abc",
+                "y",
+                "notes/b.txt",
+                "mz://local/notes/b.txt",
+                1,
+                1,
+                None,
+            )
             .unwrap();
 
         let found = index.entries_under("logs/").unwrap();
