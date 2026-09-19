@@ -194,9 +194,9 @@ pub struct ScanArgs {
     #[arg(value_name = "PREFIX")]
     pub prefixes: Vec<String>,
 
-    /// Generate thumbnails for media that does not have one yet.
+    /// Skip thumbnail generation for media that has none yet.
     #[arg(long)]
-    pub thumb: bool,
+    pub no_thumb: bool,
 
     /// Emit the results as JSON.
     #[arg(long)]

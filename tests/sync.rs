@@ -221,3 +221,57 @@ fn tags_and_meta_propagate() {
     let tagged = stdout(&run(d2mz(home.path(), "a2").args(["tag", "list", "work"])));
     assert!(tagged.contains("a.txt"), "{tagged}");
 }
+
+#[test]
+fn auto_sync_pushes_after_an_index_change() {
+    let home = tempfile::tempdir().unwrap();
+    let archive_dir = home.path().join("auto");
+    fs::create_dir_all(&archive_dir).unwrap();
+    let config = home.path().join("auto.toml");
+    fs::write(
+        &config,
+        format!(
+            "archive_dir = {:?}\nmain = {:?}\nauto_sync = true\n\n[[backend]]\nname = \"local\"\nscheme = \"fs\"\nroot = \"/\"\n",
+            archive_dir.to_string_lossy(),
+            remote(home.path()),
+        ),
+    )
+    .unwrap();
+
+    let d2mz_cfg = || {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_d2mz"));
+        command.arg("--config").arg(&config);
+        command
+    };
+
+    // Seed the main database, then ingest: the push should be automatic.
+    run(d2mz_cfg().args(["sync", "--init"]));
+    let src = home.path().join("s");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("a.txt"), "hello\n").unwrap();
+    run(d2mz_cfg().args(["ingest"]).arg(src.join("a.txt")));
+
+    // A fresh node that only syncs must see the entry.
+    let other = tempfile::tempdir().unwrap();
+    let other_config = other.path().join("other.toml");
+    fs::write(
+        &other_config,
+        format!(
+            "archive_dir = {:?}\nmain = {:?}\n\n[[backend]]\nname = \"local\"\nscheme = \"fs\"\nroot = \"/\"\n",
+            other.path().join("data").to_string_lossy(),
+            remote(home.path()),
+        ),
+    )
+    .unwrap();
+    let mut sync_other = Command::new(env!("CARGO_BIN_EXE_d2mz"));
+    sync_other.arg("--config").arg(&other_config).arg("sync");
+    run(&mut sync_other);
+
+    let mut search = Command::new(env!("CARGO_BIN_EXE_d2mz"));
+    search
+        .arg("--config")
+        .arg(&other_config)
+        .args(["search", "a"]);
+    let found = stdout(&run(&mut search));
+    assert!(found.contains("a.txt"), "{found}");
+}

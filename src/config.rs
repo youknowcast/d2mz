@@ -29,6 +29,14 @@ pub struct Config {
     #[serde(default)]
     pub main: Option<String>,
 
+    /// Sync automatically after commands that change the index.
+    ///
+    /// Off by default. When enabled alongside `main`, an `ingest`, `tag`,
+    /// `forget` or `scan` pushes its result without a separate `d2mz sync`,
+    /// so a forgotten push stops being a failure mode.
+    #[serde(default)]
+    pub auto_sync: bool,
+
     /// Named backends, in declaration order.
     #[serde(default, rename = "backend")]
     pub backends: Vec<BackendConfig>,
@@ -62,6 +70,7 @@ impl Default for Config {
         let mut config = Config {
             archive_dir: default_archive_dir(),
             main: None,
+            auto_sync: false,
             backends: Vec::new(),
         };
         config.ensure_local_backend();

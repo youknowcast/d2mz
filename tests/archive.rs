@@ -258,8 +258,16 @@ fn forget_retires_an_entry() {
 
     // A later scan must not resurrect a retired entry.
     run(d2mz(archive.path()).args(["scan"]));
-    let after = entries(&archive);
-    assert_eq!(after[0]["state"], "deleted");
+    let after = stdout(&run(
+        d2mz(archive.path()).args(["archive", "--state", "deleted", "--json"])
+    ));
+    let records: Vec<serde_json::Value> = serde_json::from_str(&after).unwrap();
+    assert_eq!(records[0]["state"], "deleted");
+
+    // And it stays out of the default listing.
+    let default = stdout(&run(d2mz(archive.path()).args(["archive", "--json"])));
+    let visible: Vec<serde_json::Value> = serde_json::from_str(&default).unwrap();
+    assert!(visible.is_empty(), "{default}");
 }
 
 #[test]

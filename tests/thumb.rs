@@ -137,7 +137,7 @@ fn no_thumb_defers_generation_to_scan() {
     assert_eq!(count_files(&archive.path().join("data").join("thumb")), 0);
 
     // `scan --thumb` backfills from the local blob store.
-    run(d2mz(archive.path()).args(["scan", "--thumb"]));
+    run(d2mz(archive.path()).args(["scan"]));
     assert_eq!(count_files(&archive.path().join("data").join("thumb")), 1);
 }
 
