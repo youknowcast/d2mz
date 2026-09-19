@@ -73,10 +73,22 @@ sorts by path. When the target is a file it is shown as a single entry.
   ```
 
   `blob` rows are unique contents; `entry` rows are named sightings. Many
-  entries may point at one blob, which is exactly deduplication. Tags and
-  metadata tables (`tag`, `meta`) arrive in M4.
+  entries may point at one blob, which is exactly deduplication.
+
+  Tags and metadata hang off entries:
+
+  ```sql
+  tag(entry_id FK, tag)          -- PRIMARY KEY (entry_id, tag)
+  meta(entry_id FK, key, value)  -- PRIMARY KEY (entry_id, key)
+  ```
+
+  Search uses FTS5 over `name`, `path`, `source` and the entry's tags. The
+  index is kept in sync on ingest and on every tag change, and `reindex()`
+  rebuilds it from scratch when needed.
 - Ingest is non-destructive (copy, never move). `export` resolves a hash
   prefix to a blob and writes it back to any backend.
+- Tag targets resolve by entry id, exact path/name/source, a path suffix
+  (`docs/report.txt`), or a path/source prefix.
 - The index opens with WAL mode; SQLite stores sizes as `i64`, converted at
   the boundary.
 
@@ -86,7 +98,7 @@ sorts by path. When the target is a file it is shown as a single entry.
 - **M1** (done) `find`, recursive listing, name/size filters.
 - **M2** (done) S3-compatible backend, verified against RustFS.
 - **M3** (done) archive schema, `ingest` / `export`, BLAKE3 dedup.
-- **M4** tags and search (SQLite FTS5).
+- **M4** (done) tags and search (SQLite FTS5).
 - **M5** static musl build, shell completions, man page.
 
 ## Build and dependencies

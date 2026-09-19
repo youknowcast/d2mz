@@ -6,7 +6,9 @@ pub mod export;
 pub mod find;
 pub mod ingest;
 pub mod ls;
+pub mod search;
 pub mod stat;
+pub mod tag;
 
 use anyhow::Result;
 
@@ -40,6 +42,14 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Export(args) => {
             let archive = Archive::open(&archive_dir)?;
             export::run(&mut backends, &archive, args).await
+        }
+        Command::Tag(args) => {
+            let archive = Archive::open(&archive_dir)?;
+            tag::run(&archive, args)
+        }
+        Command::Search(args) => {
+            let archive = Archive::open(&archive_dir)?;
+            search::run(&archive, args)
         }
     }
 }

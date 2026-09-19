@@ -176,14 +176,19 @@ impl Index {
             .optional()?)
     }
 
-    /// Look up entries whose name or path exactly equals `needle`.
+    /// Look up entries whose id-like selector matches name, path, source or
+    /// the tail of a path (`docs/report.txt` matches `tmp/x/docs/report.txt`).
     pub fn find_entries(&self, needle: &str) -> Result<Vec<Entry>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, blob_hash, name, path, source, size, created_at
-             FROM entry WHERE name = ?1 OR path = ?1 OR source = ?1
+             FROM entry
+             WHERE name = ?1 OR path = ?1 OR source = ?1
+                OR path LIKE ?2 OR source LIKE ?2 OR name = ?3
              ORDER BY id",
         )?;
-        let rows = stmt.query_map([needle], row_to_entry)?;
+        let suffix = format!("%/{needle}");
+        let basename = needle.rsplit('/').next().unwrap_or(needle);
+        let rows = stmt.query_map(params![needle, suffix, basename], row_to_entry)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
@@ -322,6 +327,17 @@ impl Index {
              FROM entry WHERE path LIKE ?1 ORDER BY path",
         )?;
         let pattern = format!("{prefix}%");
+        let rows = stmt.query_map([pattern], row_to_entry)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Entries whose path or source URI starts with `prefix`.
+    pub fn entries_matching_prefix(&self, prefix: &str) -> Result<Vec<Entry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, blob_hash, name, path, source, size, created_at
+             FROM entry WHERE path LIKE ?1 OR source LIKE ?1 ORDER BY path",
+        )?;
+        let pattern = format!("%{prefix}%");
         let rows = stmt.query_map([pattern], row_to_entry)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
@@ -522,5 +538,21 @@ mod tests {
         let found = index.find_entries("docs/report.txt").unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].name, "report.txt");
+    }
+
+    #[test]
+    fn find_entries_matches_basenames_and_tails() {
+        let index = seeded();
+        assert_eq!(index.find_entries("photo.jpg").unwrap().len(), 1);
+        assert_eq!(index.find_entries("docs/report.txt").unwrap().len(), 1);
+        assert_eq!(index.find_entries("missing.txt").unwrap().len(), 0);
+    }
+
+    #[test]
+    fn entries_matching_prefix_checks_sources_too() {
+        let index = seeded();
+        assert_eq!(index.entries_matching_prefix("docs/").unwrap().len(), 1);
+        assert_eq!(index.entries_matching_prefix("media").unwrap().len(), 1);
+        assert_eq!(index.entries_matching_prefix("nope").unwrap().len(), 0);
     }
 }
