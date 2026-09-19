@@ -8,7 +8,7 @@
 
 use anyhow::Result;
 
-use crate::archive::db::{BlobRow, EntryRow, Index};
+use crate::archive::db::{BlobRow, EntryRow, Handler, Index};
 
 /// What a merge changed.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -21,6 +21,8 @@ pub struct MergeReport {
     pub entries_skipped: usize,
     /// Tags added locally.
     pub tags_added: usize,
+    /// Handlers inserted or updated locally.
+    pub handlers_changed: usize,
 }
 
 /// A snapshot exchanged with the remote database.
@@ -41,6 +43,9 @@ pub struct Snapshot {
     pub tags: Vec<(String, String)>,
     /// All (source, key, value) triples.
     pub meta: Vec<(String, String, String)>,
+    /// All handler assignments.
+    #[serde(default)]
+    pub handlers: Vec<Handler>,
 }
 
 impl Snapshot {
@@ -52,6 +57,7 @@ impl Snapshot {
             entries: index.entry_rows()?,
             tags: index.tag_rows()?,
             meta: index.meta_rows()?,
+            handlers: index.handlers()?,
         })
     }
 
@@ -88,6 +94,12 @@ impl Snapshot {
         for (source, key, value) in &self.meta {
             if let Some(entry) = index.entry_by_source(source)? {
                 index.set_meta(entry.id, key, value)?;
+            }
+        }
+
+        for handler in &self.handlers {
+            if index.upsert_handler_row(handler)? {
+                report.handlers_changed += 1;
             }
         }
 
@@ -139,12 +151,28 @@ pub fn outgoing(index: &Index, remote: &Snapshot) -> Result<Snapshot> {
         .filter(|triple| !remote_meta.contains(triple))
         .collect();
 
+    let handlers: Vec<Handler> = local
+        .handlers
+        .into_iter()
+        .filter(|handler| {
+            match remote
+                .handlers
+                .iter()
+                .find(|h| h.kind == handler.kind && h.matcher == handler.matcher)
+            {
+                Some(remote_handler) => handler.updated_at > remote_handler.updated_at,
+                None => true,
+            }
+        })
+        .collect();
+
     Ok(Snapshot {
         main_id: remote.main_id.clone(),
         blobs,
         entries,
         tags,
         meta,
+        handlers,
     })
 }
 

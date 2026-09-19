@@ -35,6 +35,10 @@ pub enum Command {
     Forget(ForgetArgs),
     /// Merge this index with a remote main database.
     Sync(SyncArgs),
+    /// Open an object with an application chosen by kind.
+    Open(OpenArgs),
+    /// Manage application handlers used by `open`.
+    Handler(HandlerArgs),
     /// List archived entries.
     Archive(ArchiveArgs),
     /// Write an archived blob back out to a URI.
@@ -221,6 +225,77 @@ pub struct SyncArgs {
     pub force: bool,
 
     /// Emit the result as JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// Arguments for `d2mz open`.
+#[derive(Debug, Args)]
+pub struct OpenArgs {
+    /// Target URI.
+    pub uri: String,
+
+    /// Run this command instead of the resolved handler (`{}` is the path).
+    #[arg(short = 'w', long)]
+    pub with: Option<String>,
+
+    /// Treat the object as this kind instead of detecting it.
+    #[arg(long = "as", value_name = "KIND")]
+    pub as_kind: Option<String>,
+
+    /// Print the resolved path instead of opening anything.
+    #[arg(short, long)]
+    pub print: bool,
+}
+
+/// Arguments for `d2mz handler`.
+#[derive(Debug, Args)]
+pub struct HandlerArgs {
+    #[command(subcommand)]
+    pub command: HandlerCommand,
+}
+
+/// Handler subcommands.
+#[derive(Debug, Subcommand)]
+pub enum HandlerCommand {
+    /// Register or update a handler.
+    Set(HandlerSetArgs),
+    /// Remove a handler.
+    Rm(HandlerRemoveArgs),
+    /// List handlers.
+    List(HandlerListArgs),
+}
+
+/// Arguments for `d2mz handler set`.
+#[derive(Debug, Args)]
+pub struct HandlerSetArgs {
+    /// Kind to handle, e.g. `image` or `video`.
+    pub kind: String,
+
+    /// Command to run; `{}` is replaced by the path.
+    #[arg(long, value_name = "COMMAND")]
+    pub app: String,
+
+    /// Extension this applies to (default `*`, the whole kind).
+    #[arg(long, default_value = "*")]
+    pub matcher: String,
+}
+
+/// Arguments for `d2mz handler rm`.
+#[derive(Debug, Args)]
+pub struct HandlerRemoveArgs {
+    /// Kind to remove from.
+    pub kind: String,
+
+    /// Extension to remove (default `*`).
+    #[arg(long, default_value = "*")]
+    pub matcher: String,
+}
+
+/// Arguments for `d2mz handler list`.
+#[derive(Debug, Args)]
+pub struct HandlerListArgs {
+    /// Emit the listing as JSON.
     #[arg(long)]
     pub json: bool,
 }

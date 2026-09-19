@@ -184,6 +184,16 @@ fn merge_remote(remote: &Snapshot, added: &Snapshot) -> Snapshot {
             merged.meta.push(meta.clone());
         }
     }
+    for handler in &added.handlers {
+        match merged
+            .handlers
+            .iter_mut()
+            .find(|h| h.kind == handler.kind && h.matcher == handler.matcher)
+        {
+            Some(slot) => *slot = handler.clone(),
+            None => merged.handlers.push(handler.clone()),
+        }
+    }
     merged
 }
 

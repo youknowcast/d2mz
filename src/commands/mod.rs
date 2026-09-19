@@ -6,8 +6,10 @@ pub mod export;
 pub mod find;
 pub mod forget;
 pub mod generate;
+pub mod handler;
 pub mod ingest;
 pub mod ls;
+pub mod open;
 pub mod scan;
 pub mod search;
 pub mod stat;
@@ -50,6 +52,14 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Sync(args) => {
             let archive = Archive::open(&archive_dir)?;
             sync::run(&mut backends, &config, &archive, args).await
+        }
+        Command::Handler(args) => {
+            let archive = Archive::open(&archive_dir)?;
+            handler::run(&archive, args)
+        }
+        Command::Open(args) => {
+            let archive = Archive::open(&archive_dir)?;
+            open::run(&mut backends, &archive, args).await
         }
         Command::Archive(args) => {
             let archive = Archive::open(&archive_dir)?;

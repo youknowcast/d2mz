@@ -101,6 +101,21 @@ pub struct BlobRow {
     pub created_at: i64,
 }
 
+/// An application handler bound to a file kind and extension matcher.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Handler {
+    /// Logical kind, e.g. `image`, `video`, `text`.
+    pub kind: String,
+    /// Matcher: a file extension (`.png`) or `*` for the whole kind.
+    pub matcher: String,
+    /// Command to run; `{}` is replaced by the path.
+    pub app: String,
+    /// Unix timestamp of the last change.
+    pub updated_at: i64,
+    /// Node that made the change.
+    pub origin: String,
+}
+
 /// A raw entry row, exchanged during sync.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EntryRow {
@@ -249,6 +264,15 @@ impl Index {
             CREATE TABLE IF NOT EXISTS node (
                 key   TEXT PRIMARY KEY,
                 value TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS handler (
+                kind       TEXT NOT NULL,
+                matcher    TEXT NOT NULL,
+                app        TEXT NOT NULL,
+                updated_at INTEGER NOT NULL,
+                origin     TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (kind, matcher)
             );
 
             CREATE VIRTUAL TABLE IF NOT EXISTS entry_fts USING fts5(
@@ -560,6 +584,104 @@ impl Index {
         Ok(())
     }
 
+    /// Set or replace an application handler.
+    pub fn set_handler(&self, kind: &str, matcher: &str, app: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO handler(kind, matcher, app, updated_at, origin)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(kind, matcher) DO UPDATE SET
+                 app = excluded.app, updated_at = excluded.updated_at, origin = excluded.origin",
+            params![kind, matcher, app, unix_secs(), self.node],
+        )?;
+        Ok(())
+    }
+
+    /// Remove a handler. Returns whether it existed.
+    pub fn remove_handler(&self, kind: &str, matcher: &str) -> Result<bool> {
+        let changed = self.conn.execute(
+            "DELETE FROM handler WHERE kind = ?1 AND matcher = ?2",
+            params![kind, matcher],
+        )?;
+        Ok(changed > 0)
+    }
+
+    /// Every configured handler, ordered for deterministic resolution.
+    pub fn handlers(&self) -> Result<Vec<Handler>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT kind, matcher, app, updated_at, origin FROM handler
+             ORDER BY kind, matcher",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(Handler {
+                kind: row.get(0)?,
+                matcher: row.get(1)?,
+                app: row.get(2)?,
+                updated_at: row.get(3)?,
+                origin: row.get(4)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Resolve the handler for a kind and file extension.
+    ///
+    /// An extension-specific handler wins over the kind's `*` default.
+    pub fn resolve_handler(&self, kind: &str, extension: Option<&str>) -> Result<Option<Handler>> {
+        let specific: Option<Handler> = match extension {
+            Some(ext) => self
+                .conn
+                .query_row(
+                    "SELECT kind, matcher, app, updated_at, origin FROM handler
+                     WHERE kind = ?1 AND matcher = ?2",
+                    params![kind, ext],
+                    row_to_handler,
+                )
+                .optional()?,
+            None => None,
+        };
+        if specific.is_some() {
+            return Ok(specific);
+        }
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT kind, matcher, app, updated_at, origin FROM handler
+                 WHERE kind = ?1 AND matcher = '*'",
+                [kind],
+                row_to_handler,
+            )
+            .optional()?)
+    }
+
+    /// Insert or overwrite a handler row exactly as given (sync apply).
+    pub fn upsert_handler_row(&self, handler: &Handler) -> Result<bool> {
+        let existing: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT updated_at FROM handler WHERE kind = ?1 AND matcher = ?2",
+                params![handler.kind, handler.matcher],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if existing.is_some_and(|updated| updated >= handler.updated_at) {
+            return Ok(false);
+        }
+        self.conn.execute(
+            "INSERT INTO handler(kind, matcher, app, updated_at, origin)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(kind, matcher) DO UPDATE SET
+                 app = excluded.app, updated_at = excluded.updated_at, origin = excluded.origin",
+            params![
+                handler.kind,
+                handler.matcher,
+                handler.app,
+                handler.updated_at,
+                handler.origin
+            ],
+        )?;
+        Ok(true)
+    }
+
     /// Full-text search over names, paths, sources and tags.
     pub fn search(&self, query: &str) -> Result<Vec<Entry>> {
         let mut stmt = self.conn.prepare(
@@ -805,6 +927,16 @@ impl Index {
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
+}
+
+fn row_to_handler(row: &rusqlite::Row<'_>) -> rusqlite::Result<Handler> {
+    Ok(Handler {
+        kind: row.get(0)?,
+        matcher: row.get(1)?,
+        app: row.get(2)?,
+        updated_at: row.get(3)?,
+        origin: row.get(4)?,
+    })
 }
 
 fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<Entry> {
@@ -1090,5 +1222,55 @@ mod tests {
         let entry = index.entry(first).unwrap().unwrap();
         assert_eq!(entry.blob, "bbb");
         assert_eq!(entry.state, EntryState::Present);
+    }
+
+    #[test]
+    fn handlers_are_set_resolved_and_removed() {
+        let index = Index::open_in_memory().unwrap();
+        index.set_handler("image", "*", "xdg-open {}").unwrap();
+        index.set_handler("image", ".svg", "inkscape {}").unwrap();
+
+        // The extension-specific handler wins.
+        let resolved = index
+            .resolve_handler("image", Some(".svg"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(resolved.app, "inkscape {}");
+
+        // Other extensions fall back to the kind default.
+        let resolved = index
+            .resolve_handler("image", Some(".png"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(resolved.app, "xdg-open {}");
+
+        assert!(index.remove_handler("image", ".svg").unwrap());
+        assert!(!index.remove_handler("image", ".svg").unwrap());
+        assert_eq!(index.handlers().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn handler_upsert_respects_recency() {
+        let index = Index::open_in_memory().unwrap();
+        let mut row = Handler {
+            kind: "image".into(),
+            matcher: "*".into(),
+            app: "old {}".into(),
+            updated_at: 100,
+            origin: "a".into(),
+        };
+        assert!(index.upsert_handler_row(&row).unwrap());
+        assert_eq!(index.handlers().unwrap()[0].app, "old {}");
+
+        // An older row must not overwrite a newer one.
+        row.app = "older {}".into();
+        row.updated_at = 50;
+        assert!(!index.upsert_handler_row(&row).unwrap());
+        assert_eq!(index.handlers().unwrap()[0].app, "old {}");
+
+        row.app = "new {}".into();
+        row.updated_at = 200;
+        assert!(index.upsert_handler_row(&row).unwrap());
+        assert_eq!(index.handlers().unwrap()[0].app, "new {}");
     }
 }
