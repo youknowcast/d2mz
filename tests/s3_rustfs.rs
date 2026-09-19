@@ -89,6 +89,7 @@ fn put_object(_endpoint: &str, key: &str, body: &str) {
 }
 
 async fn resolve(backends: &mut Backends, uri: &str) -> Operator {
+    d2mz::init_http();
     let uri = Uri::parse(uri).expect("parse uri");
     backends.resolve(&uri).expect("resolve backend")
 }

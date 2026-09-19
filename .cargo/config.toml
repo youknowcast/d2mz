@@ -1,0 +1,15 @@
+[build]
+edition = "2024"
+
+# Ship a small, fast binary: optimize for size-class output, strip symbols,
+# and fold the formatting/panic machinery away.
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+opt-level = 3
+
+# Integration tests spawn the real binary, so keep debug info off but builds fast.
+[profile.dev]
+debug = 1
