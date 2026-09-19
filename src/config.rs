@@ -37,6 +37,13 @@ pub struct Config {
     #[serde(default)]
     pub auto_sync: bool,
 
+    /// Glob patterns excluded from `ingest`.
+    ///
+    /// Defaults to the usual filesystem noise. Set it to `[]` to ingest
+    /// everything, or list your own patterns to replace the defaults.
+    #[serde(default = "default_ignore")]
+    pub ignore: Vec<String>,
+
     /// Named backends, in declaration order.
     #[serde(default, rename = "backend")]
     pub backends: Vec<BackendConfig>,
@@ -71,6 +78,7 @@ impl Default for Config {
             archive_dir: default_archive_dir(),
             main: None,
             auto_sync: false,
+            ignore: default_ignore(),
             backends: Vec::new(),
         };
         config.ensure_local_backend();
@@ -135,6 +143,24 @@ fn default_archive_dir() -> PathBuf {
         Some(base) => base.join("d2mz"),
         None => PathBuf::from(".d2mz"),
     }
+}
+
+/// Filesystem noise that should never end up in the archive.
+fn default_ignore() -> Vec<String> {
+    [
+        ".DS_Store",
+        "Thumbs.db",
+        "desktop.ini",
+        ".git",
+        ".git/**",
+        "**/.git/**",
+        "*.tmp",
+        "*.swp",
+        "*~",
+    ]
+    .iter()
+    .map(|pattern| pattern.to_string())
+    .collect()
 }
 
 fn value_to_string(value: &toml::Value) -> Option<String> {
@@ -207,6 +233,19 @@ mod tests {
         let opts = r2.opendal_options();
         assert_eq!(opts.get("bucket").unwrap(), "mybucket");
         assert_eq!(opts.get("endpoint").unwrap(), "https://example.invalid");
+    }
+
+    #[test]
+    fn ignore_defaults_and_overrides() {
+        let config = Config::default();
+        assert!(config.ignore.iter().any(|p| p == ".DS_Store"));
+
+        // An explicit empty list disables ignoring entirely.
+        let config: Config = toml::from_str("ignore = []").unwrap();
+        assert!(config.ignore.is_empty());
+
+        let config: Config = toml::from_str("ignore = [\"*.bak\"]").unwrap();
+        assert_eq!(config.ignore, vec!["*.bak".to_string()]);
     }
 
     #[test]

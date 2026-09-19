@@ -49,7 +49,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Command::Ingest(args) => {
             let archive = Archive::open(&archive_dir)?;
-            let result = ingest::run(&mut backends, &archive, args).await;
+            let result = ingest::run(&mut backends, &archive, args, &config.ignore).await;
             auto_sync(&mut backends, &config, &archive, result.is_ok()).await?;
             result
         }

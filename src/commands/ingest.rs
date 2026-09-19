@@ -10,8 +10,14 @@ use crate::browse;
 use crate::cli::IngestArgs;
 use crate::uri::Uri;
 
-pub async fn run(backends: &mut Backends, archive: &Archive, args: IngestArgs) -> Result<()> {
+pub async fn run(
+    backends: &mut Backends,
+    archive: &Archive,
+    args: IngestArgs,
+    ignore: &[String],
+) -> Result<()> {
     let filter = build_glob(args.name.as_deref())?;
+    let ignore = build_patterns(ignore)?;
     let mut outcomes: Vec<IngestOutcome> = Vec::new();
     let mut missing = 0usize;
 
@@ -19,7 +25,7 @@ pub async fn run(backends: &mut Backends, archive: &Archive, args: IngestArgs) -
         let uri = Uri::parse(raw)?;
         let operator = backends.resolve(&uri)?;
 
-        let targets = collect(&operator, &uri, args.recursive, &filter).await?;
+        let targets = collect(&operator, &uri, args.recursive, &filter, &ignore).await?;
         if targets.is_empty() {
             anyhow::bail!("no ingestable objects found at {uri}");
         }
@@ -142,11 +148,12 @@ async fn collect(
     uri: &Uri,
     recursive: bool,
     filter: &Option<GlobSet>,
+    ignore: &Option<GlobSet>,
 ) -> Result<Vec<(String, String)>> {
     let mut paths = Vec::new();
 
     if let Some(view) = file_view(operator, uri).await {
-        if matches_filter(&view.name, filter) {
+        if matches_filter(&view.name, filter) && !is_ignored(&view.path, ignore) {
             paths.push(view.path);
         }
     } else {
@@ -159,7 +166,7 @@ async fn collect(
             if view.kind == "dir" {
                 continue;
             }
-            if matches_filter(&view.name, filter) {
+            if matches_filter(&view.name, filter) && !is_ignored(&view.path, ignore) {
                 paths.push(view.path);
             }
         }
@@ -194,6 +201,30 @@ fn matches_filter(name: &str, filter: &Option<GlobSet>) -> bool {
         Some(set) => set.is_match(name),
         None => true,
     }
+}
+
+/// Whether a backend-relative path matches any ignore pattern.
+///
+/// Matches against both the whole path and its basename, so a plain
+/// `.DS_Store` pattern catches the file at any depth.
+fn is_ignored(path: &str, ignore: &Option<GlobSet>) -> bool {
+    let Some(set) = ignore else {
+        return false;
+    };
+    set.is_match(path) || set.is_match(basename(path))
+}
+
+/// Build a glob set from a list of patterns, or `None` when there are none.
+fn build_patterns(patterns: &[String]) -> Result<Option<GlobSet>> {
+    if patterns.is_empty() {
+        return Ok(None);
+    }
+    let mut builder = GlobSetBuilder::new();
+    for pattern in patterns {
+        builder
+            .add(Glob::new(pattern).with_context(|| format!("invalid ignore glob {pattern:?}"))?);
+    }
+    Ok(Some(builder.build().context("building ignore set")?))
 }
 
 fn basename(path: &str) -> String {

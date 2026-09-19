@@ -394,6 +394,27 @@ fn find_answers_from_the_index_when_archived() {
     assert!(!listing.contains("b.log"), "{listing}");
 }
 
+#[test]
+fn ingest_skips_filesystem_noise_by_default() {
+    let archive = tempfile::tempdir().unwrap();
+    let src = tempfile::tempdir().unwrap();
+    fs::create_dir_all(src.path().join(".git")).unwrap();
+    fs::write(src.path().join("a.txt"), "keep\n").unwrap();
+    fs::write(src.path().join(".DS_Store"), "noise\n").unwrap();
+    fs::write(src.path().join("junk.tmp"), "noise\n").unwrap();
+    fs::write(src.path().join(".git/config"), "noise\n").unwrap();
+
+    run(d2mz(archive.path()).args(["ingest", "-R"]).arg(src.path()));
+
+    let json = stdout(&run(d2mz(archive.path()).args(["archive", "--json"])));
+    let records: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+    let names: Vec<&str> = records
+        .iter()
+        .map(|record| record["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, vec!["a.txt"], "{names:?}");
+}
+
 fn count_files(dir: &Path) -> usize {
     let mut count = 0;
     let mut stack = vec![dir.to_path_buf()];
