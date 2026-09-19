@@ -37,18 +37,21 @@ impl EntryRecord {
     /// A single line for `search` / `archive`: state marker, backend, path,
     /// size and hash prefix.
     pub fn line(&self) -> String {
+        use crate::output::pad_display;
+
         let short = self.hash.get(0..8).unwrap_or(&self.hash);
         let marker = match self.state.as_str() {
             "missing" => "!",
             "deleted" => "x",
             _ => " ",
         };
+        // Backend is ASCII, but paths may be CJK and must be padded by
+        // display width, not byte length.
+        let size = human_size(self.size);
         format!(
-            "{marker}{:<8} {size:>8}  {:<8} {}",
-            self.backend,
-            short,
+            "{marker}{} {size:>8}  {short:<8} {}",
+            pad_display(&self.backend, 8),
             self.path,
-            size = human_size(self.size)
         )
     }
 

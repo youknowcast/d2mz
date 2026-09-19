@@ -107,9 +107,37 @@ impl EntryView {
             Some(bytes) => human_size(bytes),
             None => "-".to_string(),
         };
-        let modified = self.modified.as_deref().unwrap_or("-");
-        format!("{kind} {size:>8} {modified:<20} {}", self.plain())
+        let modified = self
+            .modified
+            .as_deref()
+            .map(short_time)
+            .unwrap_or_else(|| "-".to_string());
+        format!("{kind} {size:>8} {modified:<16} {}", self.plain())
     }
+}
+
+/// Trim an RFC 3339 timestamp to `YYYY-MM-DD HH:MM` for listings.
+pub fn short_time(rfc3339: &str) -> String {
+    // `2026-09-20T12:34:56.789+09:00` -> `2026-09-20 12:34`
+    let Some((date, rest)) = rfc3339.split_once('T') else {
+        return rfc3339.to_string();
+    };
+    let time: String = rest.chars().take(5).collect();
+    if time.len() == 5 {
+        format!("{date} {time}")
+    } else {
+        date.to_string()
+    }
+}
+
+/// Pad `text` to `width` display columns, counting wide CJK glyphs as two.
+pub fn pad_display(text: &str, width: usize) -> String {
+    use unicode_width::UnicodeWidthStr;
+    let current = text.width();
+    if current >= width {
+        return text.to_string();
+    }
+    format!("{text}{}", " ".repeat(width - current))
 }
 
 /// Detailed metadata for a single object, used by `stat`.
@@ -195,5 +223,25 @@ mod tests {
         assert_eq!(human_size(1024), "1.0K");
         assert_eq!(human_size(1536), "1.5K");
         assert_eq!(human_size(1024 * 1024), "1.0M");
+    }
+
+    #[test]
+    fn short_time_trims_to_minutes() {
+        assert_eq!(
+            short_time("2026-09-20T12:34:56.789+09:00"),
+            "2026-09-20 12:34"
+        );
+        assert_eq!(short_time("2026-09-20"), "2026-09-20");
+    }
+
+    #[test]
+    fn pad_display_counts_wide_glyphs() {
+        use unicode_width::UnicodeWidthStr;
+        // "日本" is four display columns but six bytes.
+        let padded = pad_display("日本", 8);
+        assert_eq!(padded.width(), 8);
+        assert_eq!(pad_display("ab", 8).width(), 8);
+        // Never truncates.
+        assert_eq!(pad_display("abcdefghij", 4), "abcdefghij");
     }
 }
