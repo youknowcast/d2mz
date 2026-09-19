@@ -63,6 +63,10 @@ pub struct Entry {
     pub state: EntryState,
     /// Unix timestamp of the last scan that observed this entry.
     pub seen_at: Option<i64>,
+    /// Unix timestamp of the last write; drives sync conflict resolution.
+    pub updated_at: i64,
+    /// Node that made the last write, or empty when unknown.
+    pub origin: String,
 }
 
 /// Summary of a blob and how many entries reference it.
@@ -88,6 +92,7 @@ pub struct TagStat {
 /// The archive metadata index.
 pub struct Index {
     conn: Connection,
+    node: String,
 }
 
 impl Index {
@@ -95,18 +100,46 @@ impl Index {
     pub fn open(path: &Path) -> Result<Index> {
         let conn =
             Connection::open(path).with_context(|| format!("opening index {}", path.display()))?;
-        let index = Index { conn };
+        let mut index = Index {
+            conn,
+            node: String::new(),
+        };
         index.migrate()?;
+        index.node = index.load_or_create_node()?;
         Ok(index)
     }
 
     /// Open an in-memory index, for tests.
     pub fn open_in_memory() -> Result<Index> {
-        let index = Index {
+        let mut index = Index {
             conn: Connection::open_in_memory()?,
+            node: String::new(),
         };
         index.migrate()?;
+        index.node = index.load_or_create_node()?;
         Ok(index)
+    }
+
+    /// The stable identifier of this node.
+    pub fn node(&self) -> &str {
+        &self.node
+    }
+
+    /// Read the node id, creating one on first use.
+    fn load_or_create_node(&self) -> Result<String> {
+        let existing: Option<String> = self
+            .conn
+            .query_row("SELECT value FROM node WHERE key = 'id'", [], |row| {
+                row.get(0)
+            })
+            .optional()?;
+        if let Some(id) = existing {
+            return Ok(id);
+        }
+        let id = format!("{}-{}", unix_nanos(), std::process::id());
+        self.conn
+            .execute("INSERT INTO node(key, value) VALUES ('id', ?1)", [&id])?;
+        Ok(id)
     }
 
     fn migrate(&self) -> Result<()> {
@@ -153,6 +186,11 @@ impl Index {
                 PRIMARY KEY (entry_id, key)
             );
 
+            CREATE TABLE IF NOT EXISTS node (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+
             CREATE VIRTUAL TABLE IF NOT EXISTS entry_fts USING fts5(
                 name, path, source, tags,
                 tokenize='unicode61'
@@ -163,9 +201,14 @@ impl Index {
         self.add_column_if_missing("entry", "mtime", "INTEGER")?;
         self.add_column_if_missing("entry", "state", "TEXT NOT NULL DEFAULT 'present'")?;
         self.add_column_if_missing("entry", "seen_at", "INTEGER")?;
+        self.add_column_if_missing("entry", "updated_at", "INTEGER NOT NULL DEFAULT 0")?;
+        self.add_column_if_missing("entry", "origin", "TEXT NOT NULL DEFAULT ''")?;
         self.conn
-            .execute_batch("CREATE INDEX IF NOT EXISTS entry_source ON entry(source);")
-            .context("indexing entry sources")?;
+            .execute_batch(
+                "CREATE INDEX IF NOT EXISTS entry_source ON entry(source);
+                 CREATE INDEX IF NOT EXISTS entry_updated ON entry(updated_at);",
+            )
+            .context("indexing entry columns")?;
         Ok(())
     }
 
@@ -219,8 +262,8 @@ impl Index {
         mtime: Option<i64>,
     ) -> Result<i64> {
         self.conn.execute(
-            "INSERT INTO entry(blob_hash, name, path, source, size, created_at, mtime, state, seen_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'present', ?6)",
+            "INSERT INTO entry(blob_hash, name, path, source, size, created_at, mtime, state, seen_at, updated_at, origin)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'present', ?6, ?6, ?8)",
             params![
                 blob,
                 name,
@@ -228,7 +271,8 @@ impl Index {
                 source,
                 u64_to_i64(size),
                 created_at,
-                mtime
+                mtime,
+                self.node
             ],
         )?;
         let id = self.conn.last_insert_rowid();
@@ -241,7 +285,7 @@ impl Index {
         Ok(self
             .conn
             .query_row(
-                "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at
+                "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at, updated_at, origin
                  FROM entry WHERE source = ?1",
                 [source],
                 row_to_entry,
@@ -260,9 +304,10 @@ impl Index {
     ) -> Result<()> {
         self.conn.execute(
             "UPDATE entry
-             SET blob_hash = ?2, size = ?3, mtime = ?4, state = 'present', seen_at = ?5
+             SET blob_hash = ?2, size = ?3, mtime = ?4, state = 'present',
+                 seen_at = ?5, updated_at = ?5, origin = ?6
              WHERE id = ?1",
-            params![id, blob, u64_to_i64(size), mtime, now],
+            params![id, blob, u64_to_i64(size), mtime, now, self.node],
         )?;
         Ok(())
     }
@@ -270,9 +315,9 @@ impl Index {
     /// Mark an entry as absent, unless it was explicitly retired.
     pub fn mark_missing(&self, id: i64, now: i64) -> Result<()> {
         self.conn.execute(
-            "UPDATE entry SET state = 'missing', seen_at = ?2
+            "UPDATE entry SET state = 'missing', seen_at = ?2, updated_at = ?2, origin = ?3
              WHERE id = ?1 AND state != 'deleted'",
-            params![id, now],
+            params![id, now, self.node],
         )?;
         Ok(())
     }
@@ -280,8 +325,9 @@ impl Index {
     /// Explicitly retire an entry with `forget` (tombstone).
     pub fn mark_deleted(&self, id: i64, now: i64) -> Result<()> {
         self.conn.execute(
-            "UPDATE entry SET state = 'deleted', seen_at = ?2 WHERE id = ?1",
-            params![id, now],
+            "UPDATE entry SET state = 'deleted', seen_at = ?2, updated_at = ?2, origin = ?3
+             WHERE id = ?1",
+            params![id, now, self.node],
         )?;
         Ok(())
     }
@@ -289,7 +335,7 @@ impl Index {
     /// Entries with the given state.
     pub fn entries_in_state(&self, state: EntryState) -> Result<Vec<Entry>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at
+            "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at, updated_at, origin
              FROM entry WHERE state = ?1 ORDER BY path",
         )?;
         let rows = stmt.query_map([state.as_str()], row_to_entry)?;
@@ -299,7 +345,7 @@ impl Index {
     /// Entries whose source URI starts with `prefix`, for scanning.
     pub fn entries_for_prefix(&self, prefix: &str) -> Result<Vec<Entry>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at
+            "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at, updated_at, origin
              FROM entry WHERE source LIKE ?1 ORDER BY source",
         )?;
         let pattern = format!("{prefix}%");
@@ -312,7 +358,7 @@ impl Index {
         Ok(self
             .conn
             .query_row(
-                "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at
+                "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at, updated_at, origin
                  FROM entry WHERE id = ?1",
                 [id],
                 row_to_entry,
@@ -324,7 +370,7 @@ impl Index {
     /// the tail of a path (`docs/report.txt` matches `tmp/x/docs/report.txt`).
     pub fn find_entries(&self, needle: &str) -> Result<Vec<Entry>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at
+            "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at, updated_at, origin
              FROM entry
              WHERE name = ?1 OR path = ?1 OR source = ?1
                 OR path LIKE ?2 OR source LIKE ?2 OR name = ?3
@@ -339,7 +385,7 @@ impl Index {
     /// All entries carrying `tag`.
     pub fn entries_with_tag(&self, tag: &str) -> Result<Vec<Entry>> {
         let mut stmt = self.conn.prepare(
-            "SELECT e.id, e.blob_hash, e.name, e.path, e.source, e.size, e.created_at, e.mtime, e.state, e.seen_at
+            "SELECT e.id, e.blob_hash, e.name, e.path, e.source, e.size, e.created_at, e.mtime, e.state, e.seen_at, e.updated_at, e.origin
              FROM entry e JOIN tag t ON t.entry_id = e.id
              WHERE t.tag = ?1 ORDER BY e.path",
         )?;
@@ -377,6 +423,7 @@ impl Index {
             params![entry_id, tag],
         )?;
         if changed > 0 {
+            self.touch(entry_id)?;
             self.fts_refresh(entry_id)?;
         }
         Ok(changed > 0)
@@ -389,6 +436,7 @@ impl Index {
             params![entry_id, tag],
         )?;
         if changed > 0 {
+            self.touch(entry_id)?;
             self.fts_refresh(entry_id)?;
         }
         Ok(changed > 0)
@@ -401,13 +449,23 @@ impl Index {
              ON CONFLICT(entry_id, key) DO UPDATE SET value = excluded.value",
             params![entry_id, key, value],
         )?;
+        self.touch(entry_id)?;
+        Ok(())
+    }
+
+    /// Bump an entry's modification time and origin.
+    fn touch(&self, entry_id: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE entry SET updated_at = ?2, origin = ?3 WHERE id = ?1",
+            params![entry_id, unix_secs(), self.node],
+        )?;
         Ok(())
     }
 
     /// Full-text search over names, paths, sources and tags.
     pub fn search(&self, query: &str) -> Result<Vec<Entry>> {
         let mut stmt = self.conn.prepare(
-            "SELECT e.id, e.blob_hash, e.name, e.path, e.source, e.size, e.created_at, e.mtime, e.state, e.seen_at
+            "SELECT e.id, e.blob_hash, e.name, e.path, e.source, e.size, e.created_at, e.mtime, e.state, e.seen_at, e.updated_at, e.origin
              FROM entry_fts f JOIN entry e ON e.id = f.rowid
              WHERE entry_fts MATCH ?1
              ORDER BY bm25(entry_fts), e.path",
@@ -457,7 +515,7 @@ impl Index {
     /// Every entry, newest first.
     pub fn entries(&self) -> Result<Vec<Entry>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at
+            "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at, updated_at, origin
              FROM entry ORDER BY created_at DESC, id DESC",
         )?;
         let rows = stmt.query_map([], row_to_entry)?;
@@ -467,7 +525,7 @@ impl Index {
     /// Entries under a given path prefix.
     pub fn entries_under(&self, prefix: &str) -> Result<Vec<Entry>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at
+            "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at, updated_at, origin
              FROM entry WHERE path LIKE ?1 ORDER BY path",
         )?;
         let pattern = format!("{prefix}%");
@@ -478,7 +536,7 @@ impl Index {
     /// Entries whose path or source URI starts with `prefix`.
     pub fn entries_matching_prefix(&self, prefix: &str) -> Result<Vec<Entry>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at
+            "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at, updated_at, origin
              FROM entry WHERE path LIKE ?1 OR source LIKE ?1 ORDER BY path",
         )?;
         let pattern = format!("%{prefix}%");
@@ -540,6 +598,8 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<Entry> {
         mtime: row.get(7)?,
         state: EntryState::parse(&state),
         seen_at: row.get(9)?,
+        updated_at: row.get(10)?,
+        origin: row.get(11)?,
     })
 }
 
@@ -550,6 +610,22 @@ fn i64_to_u64(value: i64) -> u64 {
 
 fn u64_to_i64(value: u64) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
+}
+
+/// Nanoseconds since the Unix epoch, used only to seed a node id.
+fn unix_nanos() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
+}
+
+/// Seconds since the Unix epoch.
+fn unix_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
