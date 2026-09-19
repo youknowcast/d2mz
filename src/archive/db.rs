@@ -9,6 +9,37 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
 
+/// Whether an entry's source still exists, as of the last scan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryState {
+    /// Confirmed present by the most recent scan.
+    Present,
+    /// Absent at the most recent scan; may reappear.
+    Missing,
+    /// Explicitly retired with `forget`; never scanned again.
+    Deleted,
+}
+
+impl EntryState {
+    /// The text stored in the database.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EntryState::Present => "present",
+            EntryState::Missing => "missing",
+            EntryState::Deleted => "deleted",
+        }
+    }
+
+    /// Parse a stored state, defaulting unknown values to `Present`.
+    pub fn parse(raw: &str) -> EntryState {
+        match raw {
+            "missing" => EntryState::Missing,
+            "deleted" => EntryState::Deleted,
+            _ => EntryState::Present,
+        }
+    }
+}
+
 /// A named entry recorded in the index.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
@@ -26,6 +57,12 @@ pub struct Entry {
     pub size: u64,
     /// Unix timestamp of ingest.
     pub created_at: i64,
+    /// Source mtime in seconds, when the backend reports one.
+    pub mtime: Option<i64>,
+    /// Whether the source was present at the last scan.
+    pub state: EntryState,
+    /// Unix timestamp of the last scan that observed this entry.
+    pub seen_at: Option<i64>,
 }
 
 /// Summary of a blob and how many entries reference it.
@@ -92,10 +129,14 @@ impl Index {
                 path       TEXT NOT NULL,
                 source     TEXT NOT NULL,
                 size       INTEGER NOT NULL,
-                created_at INTEGER NOT NULL
+                created_at INTEGER NOT NULL,
+                mtime      INTEGER,
+                state      TEXT NOT NULL DEFAULT 'present',
+                seen_at    INTEGER
             );
 
             CREATE INDEX IF NOT EXISTS entry_blob ON entry(blob_hash);
+            CREATE INDEX IF NOT EXISTS entry_source ON entry(source);
 
             CREATE TABLE IF NOT EXISTS tag (
                 entry_id INTEGER NOT NULL REFERENCES entry(id) ON DELETE CASCADE,
@@ -119,7 +160,30 @@ impl Index {
             ",
             )
             .context("applying schema")?;
+        self.add_column_if_missing("entry", "mtime", "INTEGER")?;
+        self.add_column_if_missing("entry", "state", "TEXT NOT NULL DEFAULT 'present'")?;
+        self.add_column_if_missing("entry", "seen_at", "INTEGER")?;
+        self.conn
+            .execute_batch("CREATE INDEX IF NOT EXISTS entry_source ON entry(source);")
+            .context("indexing entry sources")?;
         Ok(())
+    }
+
+    /// Add a column to an existing table unless it is already there.
+    ///
+    /// SQLite has no `ADD COLUMN IF NOT EXISTS`, so a failed `ALTER` for an
+    /// already-present column (duplicate column name) is treated as success.
+    fn add_column_if_missing(&self, table: &str, column: &str, spec: &str) -> Result<()> {
+        let sql = format!("ALTER TABLE {table} ADD COLUMN {column} {spec}");
+        match self.conn.execute(&sql, []) {
+            Ok(_) => Ok(()),
+            Err(rusqlite::Error::SqliteFailure(_, Some(message)))
+                if message.contains("duplicate column name") =>
+            {
+                Ok(())
+            }
+            Err(error) => Err(error).with_context(|| format!("adding {table}.{column}")),
+        }
     }
 
     /// Record a blob if it is not yet known.
@@ -152,15 +216,95 @@ impl Index {
         source: &str,
         size: u64,
         created_at: i64,
+        mtime: Option<i64>,
     ) -> Result<i64> {
         self.conn.execute(
-            "INSERT INTO entry(blob_hash, name, path, source, size, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![blob, name, path, source, u64_to_i64(size), created_at],
+            "INSERT INTO entry(blob_hash, name, path, source, size, created_at, mtime, state, seen_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'present', ?6)",
+            params![
+                blob,
+                name,
+                path,
+                source,
+                u64_to_i64(size),
+                created_at,
+                mtime
+            ],
         )?;
         let id = self.conn.last_insert_rowid();
         self.fts_upsert(id, name, path, source)?;
         Ok(id)
+    }
+
+    /// Find an entry by its source URI.
+    pub fn entry_by_source(&self, source: &str) -> Result<Option<Entry>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at
+                 FROM entry WHERE source = ?1",
+                [source],
+                row_to_entry,
+            )
+            .optional()?)
+    }
+
+    /// Mark an entry as observed at `now`, moving it back to `present`.
+    pub fn mark_present(
+        &self,
+        id: i64,
+        blob: &str,
+        size: u64,
+        mtime: Option<i64>,
+        now: i64,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE entry
+             SET blob_hash = ?2, size = ?3, mtime = ?4, state = 'present', seen_at = ?5
+             WHERE id = ?1",
+            params![id, blob, u64_to_i64(size), mtime, now],
+        )?;
+        Ok(())
+    }
+
+    /// Mark an entry as absent, unless it was explicitly retired.
+    pub fn mark_missing(&self, id: i64, now: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE entry SET state = 'missing', seen_at = ?2
+             WHERE id = ?1 AND state != 'deleted'",
+            params![id, now],
+        )?;
+        Ok(())
+    }
+
+    /// Explicitly retire an entry with `forget` (tombstone).
+    pub fn mark_deleted(&self, id: i64, now: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE entry SET state = 'deleted', seen_at = ?2 WHERE id = ?1",
+            params![id, now],
+        )?;
+        Ok(())
+    }
+
+    /// Entries with the given state.
+    pub fn entries_in_state(&self, state: EntryState) -> Result<Vec<Entry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at
+             FROM entry WHERE state = ?1 ORDER BY path",
+        )?;
+        let rows = stmt.query_map([state.as_str()], row_to_entry)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Entries whose source URI starts with `prefix`, for scanning.
+    pub fn entries_for_prefix(&self, prefix: &str) -> Result<Vec<Entry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at
+             FROM entry WHERE source LIKE ?1 ORDER BY source",
+        )?;
+        let pattern = format!("{prefix}%");
+        let rows = stmt.query_map([pattern], row_to_entry)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
     /// Fetch a single entry by id.
@@ -168,7 +312,7 @@ impl Index {
         Ok(self
             .conn
             .query_row(
-                "SELECT id, blob_hash, name, path, source, size, created_at
+                "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at
                  FROM entry WHERE id = ?1",
                 [id],
                 row_to_entry,
@@ -180,7 +324,7 @@ impl Index {
     /// the tail of a path (`docs/report.txt` matches `tmp/x/docs/report.txt`).
     pub fn find_entries(&self, needle: &str) -> Result<Vec<Entry>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, blob_hash, name, path, source, size, created_at
+            "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at
              FROM entry
              WHERE name = ?1 OR path = ?1 OR source = ?1
                 OR path LIKE ?2 OR source LIKE ?2 OR name = ?3
@@ -195,7 +339,7 @@ impl Index {
     /// All entries carrying `tag`.
     pub fn entries_with_tag(&self, tag: &str) -> Result<Vec<Entry>> {
         let mut stmt = self.conn.prepare(
-            "SELECT e.id, e.blob_hash, e.name, e.path, e.source, e.size, e.created_at
+            "SELECT e.id, e.blob_hash, e.name, e.path, e.source, e.size, e.created_at, e.mtime, e.state, e.seen_at
              FROM entry e JOIN tag t ON t.entry_id = e.id
              WHERE t.tag = ?1 ORDER BY e.path",
         )?;
@@ -263,7 +407,7 @@ impl Index {
     /// Full-text search over names, paths, sources and tags.
     pub fn search(&self, query: &str) -> Result<Vec<Entry>> {
         let mut stmt = self.conn.prepare(
-            "SELECT e.id, e.blob_hash, e.name, e.path, e.source, e.size, e.created_at
+            "SELECT e.id, e.blob_hash, e.name, e.path, e.source, e.size, e.created_at, e.mtime, e.state, e.seen_at
              FROM entry_fts f JOIN entry e ON e.id = f.rowid
              WHERE entry_fts MATCH ?1
              ORDER BY bm25(entry_fts), e.path",
@@ -313,7 +457,7 @@ impl Index {
     /// Every entry, newest first.
     pub fn entries(&self) -> Result<Vec<Entry>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, blob_hash, name, path, source, size, created_at
+            "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at
              FROM entry ORDER BY created_at DESC, id DESC",
         )?;
         let rows = stmt.query_map([], row_to_entry)?;
@@ -323,7 +467,7 @@ impl Index {
     /// Entries under a given path prefix.
     pub fn entries_under(&self, prefix: &str) -> Result<Vec<Entry>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, blob_hash, name, path, source, size, created_at
+            "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at
              FROM entry WHERE path LIKE ?1 ORDER BY path",
         )?;
         let pattern = format!("{prefix}%");
@@ -334,7 +478,7 @@ impl Index {
     /// Entries whose path or source URI starts with `prefix`.
     pub fn entries_matching_prefix(&self, prefix: &str) -> Result<Vec<Entry>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, blob_hash, name, path, source, size, created_at
+            "SELECT id, blob_hash, name, path, source, size, created_at, mtime, state, seen_at
              FROM entry WHERE path LIKE ?1 OR source LIKE ?1 ORDER BY path",
         )?;
         let pattern = format!("%{prefix}%");
@@ -384,6 +528,7 @@ impl Index {
 }
 
 fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<Entry> {
+    let state: String = row.get(8)?;
     Ok(Entry {
         id: row.get(0)?,
         blob: row.get(1)?,
@@ -392,6 +537,9 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<Entry> {
         source: row.get(4)?,
         size: i64_to_u64(row.get(5)?),
         created_at: row.get(6)?,
+        mtime: row.get(7)?,
+        state: EntryState::parse(&state),
+        seen_at: row.get(9)?,
     })
 }
 
@@ -424,10 +572,10 @@ mod tests {
         let index = Index::open_in_memory().unwrap();
         index.insert_blob("abc", 10, 1).unwrap();
         index
-            .insert_entry("abc", "a.txt", "a.txt", "mz://local/a.txt", 10, 1)
+            .insert_entry("abc", "a.txt", "a.txt", "mz://local/a.txt", 10, 1, None)
             .unwrap();
         index
-            .insert_entry("abc", "b.txt", "b.txt", "mz://local/b.txt", 10, 1)
+            .insert_entry("abc", "b.txt", "b.txt", "mz://local/b.txt", 10, 1, None)
             .unwrap();
 
         assert_eq!(index.entry_count().unwrap(), 2);
@@ -441,10 +589,10 @@ mod tests {
         let index = Index::open_in_memory().unwrap();
         index.insert_blob("abc", 1, 1).unwrap();
         index
-            .insert_entry("abc", "x", "logs/a.txt", "s", 1, 1)
+            .insert_entry("abc", "x", "logs/a.txt", "s", 1, 1, None)
             .unwrap();
         index
-            .insert_entry("abc", "y", "notes/b.txt", "s", 1, 1)
+            .insert_entry("abc", "y", "notes/b.txt", "s", 1, 1, None)
             .unwrap();
 
         let found = index.entries_under("logs/").unwrap();
@@ -463,6 +611,7 @@ mod tests {
                 "mz://local/docs/report.txt",
                 1,
                 1,
+                None,
             )
             .unwrap();
         index
@@ -473,6 +622,7 @@ mod tests {
                 "mz://local/media/photo.jpg",
                 1,
                 1,
+                None,
             )
             .unwrap();
         index
@@ -554,5 +704,77 @@ mod tests {
         assert_eq!(index.entries_matching_prefix("docs/").unwrap().len(), 1);
         assert_eq!(index.entries_matching_prefix("media").unwrap().len(), 1);
         assert_eq!(index.entries_matching_prefix("nope").unwrap().len(), 0);
+    }
+
+    #[test]
+    fn new_entries_start_present() {
+        let index = seeded();
+        let entry = index.entry(1).unwrap().unwrap();
+        assert_eq!(entry.state, EntryState::Present);
+        assert!(entry.seen_at.is_some());
+        assert_eq!(entry.mtime, None);
+    }
+
+    #[test]
+    fn missing_and_present_round_trip() {
+        let index = seeded();
+        index.mark_missing(1, 100).unwrap();
+        assert_eq!(index.entry(1).unwrap().unwrap().state, EntryState::Missing);
+
+        index.mark_present(1, "abc", 1, Some(42), 200).unwrap();
+        let entry = index.entry(1).unwrap().unwrap();
+        assert_eq!(entry.state, EntryState::Present);
+        assert_eq!(entry.mtime, Some(42));
+        assert_eq!(entry.seen_at, Some(200));
+    }
+
+    #[test]
+    fn deleted_is_a_tombstone_missing_cannot_touch() {
+        let index = seeded();
+        index.mark_deleted(1, 100).unwrap();
+        index.mark_missing(1, 200).unwrap();
+        assert_eq!(index.entry(1).unwrap().unwrap().state, EntryState::Deleted);
+
+        assert_eq!(
+            index.entries_in_state(EntryState::Deleted).unwrap().len(),
+            1
+        );
+        assert_eq!(
+            index.entries_in_state(EntryState::Missing).unwrap().len(),
+            0
+        );
+    }
+
+    #[test]
+    fn entry_by_source_and_prefix() {
+        let index = seeded();
+        let found = index
+            .entry_by_source("mz://local/docs/report.txt")
+            .unwrap()
+            .unwrap();
+        assert_eq!(found.name, "report.txt");
+
+        assert_eq!(
+            index.entries_for_prefix("mz://local/docs/").unwrap().len(),
+            1
+        );
+    }
+
+    #[test]
+    fn reingesting_same_source_reuses_the_entry() {
+        let index = Index::open_in_memory().unwrap();
+        index.insert_blob("aaa", 1, 1).unwrap();
+        let first = index
+            .insert_entry("aaa", "a.txt", "a.txt", "mz://local/a.txt", 1, 1, None)
+            .unwrap();
+        index.mark_missing(first, 2).unwrap();
+
+        index.insert_blob("bbb", 2, 3).unwrap();
+        index.mark_present(first, "bbb", 2, Some(9), 3).unwrap();
+        assert_eq!(index.entry_count().unwrap(), 1);
+
+        let entry = index.entry(first).unwrap().unwrap();
+        assert_eq!(entry.blob, "bbb");
+        assert_eq!(entry.state, EntryState::Present);
     }
 }

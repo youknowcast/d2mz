@@ -90,9 +90,23 @@ pub async fn ingest(
 
     let now = unix_now();
     archive.index().insert_blob(&hash, size, now)?;
-    let entry_id = archive
-        .index()
-        .insert_entry(&hash, name, path, &source, size, now)?;
+
+    // Re-ingesting the same source updates the existing entry instead of
+    // creating a duplicate row.
+    let mtime = metadata
+        .last_modified()
+        .map(|ts| ts.into_inner().as_second());
+    let entry_id = match archive.index().entry_by_source(&source)? {
+        Some(existing) => {
+            archive
+                .index()
+                .mark_present(existing.id, &hash, size, mtime, now)?;
+            existing.id
+        }
+        None => archive
+            .index()
+            .insert_entry(&hash, name, path, &source, size, now, mtime)?,
+    };
 
     Ok(IngestOutcome {
         hash,
