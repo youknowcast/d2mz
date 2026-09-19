@@ -677,7 +677,7 @@ impl Index {
     /// the local one, which is last-writer-wins.
     pub fn upsert_entry_row(&self, row: &EntryRow) -> Result<bool> {
         if let Some(existing) = self.entry_by_source(&row.source)?
-            && existing.updated_at > row.updated_at
+            && existing.updated_at >= row.updated_at
         {
             return Ok(false);
         }

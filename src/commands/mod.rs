@@ -11,6 +11,7 @@ pub mod ls;
 pub mod scan;
 pub mod search;
 pub mod stat;
+pub mod sync;
 pub mod tag;
 
 use anyhow::Result;
@@ -45,6 +46,10 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Forget(args) => {
             let archive = Archive::open(&archive_dir)?;
             forget::run(&archive, args)
+        }
+        Command::Sync(args) => {
+            let archive = Archive::open(&archive_dir)?;
+            sync::run(&mut backends, &archive, args).await
         }
         Command::Archive(args) => {
             let archive = Archive::open(&archive_dir)?;

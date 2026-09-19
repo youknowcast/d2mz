@@ -140,6 +140,43 @@ against a real `sshd` in `tests/sftp.rs`.
 For non-AWS S3 endpoints d2mz defaults to path-style addressing and disables
 config/credential file lookup; both are overridable.
 
+## Main database and sync
+
+The archive is usable with no remote at all. When a shared catalogue is
+wanted, one node holds a "main" database on any backend (S3, SFTP, a local
+path). It stores a portable JSON snapshot of the index, not a live SQLite
+file, because object stores cannot host a database that is written in place.
+
+`d2mz sync --remote <uri>`:
+
+1. download the remote snapshot (read-only, before locking)
+2. acquire a lease-based lock next to it
+3. merge remote rows into the local index
+4. compute local rows the remote lacks or trails on, and push
+
+Merge rules:
+
+- **entries**: keyed by `source`, last-writer-wins on `updated_at`
+- **blobs**: union by hash
+- **tags / meta**: set union
+
+Every write stamps `entry.updated_at` and `entry.origin` (the node id), which
+is what makes last-writer-wins decidable.
+
+### The lease lock
+
+POSIX locks do not exist on S3, so exclusion is a lock object created
+atomically (`write_with(..).if_not_exists(true)`, i.e. `If-None-Match: *` on
+S3 and rename on a filesystem). Its body is
+`{owner, host, acquired_at, expires_at}`. A live lease rejects other writers;
+an expired one may be stolen, so a crashed caller cannot block the archive
+forever. `LockGuard::release` deletes the object only if this node still owns
+it.
+
+IDs are keyed by URI (`mz://<backend>/<path>`), so a shared main database
+assumes every node addresses the same source the same way — configure the
+same backend names on each machine.
+
 ## Static builds
 
 A musl C compiler is unavoidable: `libsqlite3-sys` bundles SQLite and ring

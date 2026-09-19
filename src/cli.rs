@@ -33,6 +33,8 @@ pub enum Command {
     Scan(ScanArgs),
     /// Retire entries so they are no longer tracked (a tombstone).
     Forget(ForgetArgs),
+    /// Merge this index with a remote main database.
+    Sync(SyncArgs),
     /// List archived entries.
     Archive(ArchiveArgs),
     /// Write an archived blob back out to a URI.
@@ -199,6 +201,22 @@ pub struct ForgetArgs {
     pub prefix: Option<String>,
 
     /// Emit the results as JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// Arguments for `d2mz sync`.
+#[derive(Debug, Args)]
+pub struct SyncArgs {
+    /// Remote main database, e.g. `mz://rfs/d2mz/index.db`.
+    #[arg(long)]
+    pub remote: Option<String>,
+
+    /// Seed the remote from this node, then exit.
+    #[arg(long)]
+    pub init: bool,
+
+    /// Emit the result as JSON.
     #[arg(long)]
     pub json: bool,
 }

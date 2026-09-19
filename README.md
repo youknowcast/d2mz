@@ -102,6 +102,29 @@ costs nothing to re-register. `scan` also detects changed contents (by mtime
 and size) and stores the new version alongside the old one. Default listings
 mark state: a leading `!` means missing, `x` means deleted.
 
+### Remote main database (optional)
+
+d2mz works entirely offline: without a remote it is just the local index.
+When several machines should share one catalogue, point `sync` at a main
+database on any backend. The local index stays the one you query; `sync`
+merges both ways.
+
+```sh
+# On the first machine: seed the remote from the local index.
+d2mz sync --remote mz://rfs/d2mz/main.db --init
+
+# On every machine: pull remote changes and push local ones.
+d2mz sync --remote mz://rfs/d2mz/main.db
+
+# Over SSH to a Mac instead of S3:
+d2mz sync --remote mz://mac/Users/ada/d2mz/main.db
+```
+
+Merging is last-writer-wins per entry (`updated_at`), with tags and metadata
+unioned. Writers are serialised by a lease-based lock next to the database
+(`main.lock.json`); a crashed holder is recovered once its lease expires.
+`--init` overwrites the remote, so use it only to create a new one.
+
 Default listings show the backend, size, hash prefix and path, so you can
 tell at a glance which source a hit came from.
 
