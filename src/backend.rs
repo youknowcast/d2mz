@@ -35,8 +35,21 @@ impl Backends {
 
     /// Resolve `uri` to an operator, building and caching it on first use.
     pub fn resolve(&mut self, uri: &Uri) -> Result<Operator> {
+        Ok(self.resolve_with(uri, build_operator)?.0)
+    }
+
+    /// Like [`Backends::resolve`] but with a custom operator factory and
+    /// reporting the resolved backend name.
+    pub fn resolve_with<F>(
+        &mut self,
+        uri: &Uri,
+        builder: F,
+    ) -> Result<(Operator, String)>
+    where
+        F: FnOnce(&BackendConfig) -> Result<Operator>,
+    {
         if let Some(operator) = self.cache.get(uri.backend()) {
-            return Ok(operator.clone());
+            return Ok((operator.clone(), uri.backend().to_string()));
         }
 
         let backend = self.config.backend(uri.backend()).with_context(|| {
@@ -46,10 +59,18 @@ impl Backends {
                 uri.backend()
             )
         })?;
-        let operator = build_operator(backend)?;
+        let operator = builder(backend)?;
         self.cache
             .insert(uri.backend().to_string(), operator.clone());
-        Ok(operator)
+        Ok((operator, uri.backend().to_string()))
+    }
+
+    /// Register an additional backend definition at runtime.
+    ///
+    /// Used by the test suite to inject an S3 backend and by any future
+    /// in-process sources. Existing caches are unaffected.
+    pub fn add_backend(&mut self, backend: BackendConfig) {
+        self.config.backends.push(backend);
     }
 
     /// Names of all configured backends, in declaration order.
