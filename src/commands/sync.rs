@@ -5,6 +5,7 @@ use crate::archive::lock::{DEFAULT_TTL_SECS, acquire};
 use crate::archive::sync::{Snapshot, outgoing};
 use crate::backend::Backends;
 use crate::cli::SyncArgs;
+use crate::config::Config;
 use crate::uri::Uri;
 
 /// Result of a sync run, printed as text or JSON.
@@ -17,23 +18,36 @@ struct SyncReport {
     tags_added: usize,
 }
 
-pub async fn run(backends: &mut Backends, archive: &Archive, args: SyncArgs) -> Result<()> {
-    let remote = resolve_remote(&args)?;
-
-    // `sync --init` seeds the remote from this node and stops there.
-    if args.init {
-        let snapshot = Snapshot::capture(archive.index())?;
-        write_remote(backends, &remote, &snapshot).await?;
-        eprintln!("initialised remote {remote} from this node");
-        return Ok(());
-    }
-
+pub async fn run(
+    backends: &mut Backends,
+    config: &Config,
+    archive: &Archive,
+    args: SyncArgs,
+) -> Result<()> {
+    let remote = resolve_remote(config, &args)?;
     let remote_uri = Uri::parse(&remote)?;
     let operator = backends.resolve(&remote_uri)?;
     let lock_path = lock_path_for(remote_uri.path());
 
+    // `sync --init` seeds the remote from this node and stops there.
+    if args.init {
+        return init_remote(
+            backends,
+            archive,
+            &remote,
+            &operator,
+            remote_uri.path(),
+            &lock_path,
+            args.force,
+        )
+        .await;
+    }
+
     // Download the remote snapshot before locking; it is read-only work.
     let remote_snapshot = read_remote(&operator, remote_uri.path()).await?;
+
+    // Refuse to merge with a different main database than the one bound here.
+    check_main_id(archive, &remote_snapshot, &remote)?;
 
     let guard = acquire(
         &operator,
@@ -75,6 +89,76 @@ pub async fn run(backends: &mut Backends, archive: &Archive, args: SyncArgs) -> 
     Ok(())
 }
 
+/// Create or, with `--force`, overwrite the main database.
+async fn init_remote(
+    backends: &mut Backends,
+    archive: &Archive,
+    remote: &str,
+    operator: &opendal::Operator,
+    path: &str,
+    lock_path: &str,
+    force: bool,
+) -> Result<()> {
+    let existing = read_remote(operator, path).await?;
+    if !existing.entries.is_empty() && !existing.main_id.is_empty() && !force {
+        bail!(
+            "main database {remote} already exists (id {}); pass --force to overwrite it",
+            existing.main_id
+        );
+    }
+
+    // Acquire the lock so a concurrent writer cannot race the seed.
+    let guard = acquire(
+        operator,
+        lock_path,
+        archive.index().node(),
+        &hostname(),
+        DEFAULT_TTL_SECS,
+    )
+    .await
+    .context("acquiring the remote sync lock")?;
+
+    let main_id = if force || existing.main_id.is_empty() {
+        new_main_id(archive)
+    } else {
+        existing.main_id.clone()
+    };
+
+    let mut snapshot = Snapshot::capture(archive.index())?;
+    snapshot.main_id = main_id.clone();
+    write_remote(backends, remote, &snapshot).await?;
+    archive.index().bind_main_id(&main_id)?;
+
+    guard.release().await.ok();
+    eprintln!("initialised remote {remote} (main id {main_id}) from this node");
+    Ok(())
+}
+
+/// Ensure the remote belongs to the main database this node is bound to.
+fn check_main_id(archive: &Archive, remote: &Snapshot, remote_uri: &str) -> Result<()> {
+    if remote.main_id.is_empty() {
+        // Not yet initialised; nothing to bind to.
+        return Ok(());
+    }
+    match archive.index().bound_main_id()? {
+        Some(bound) if bound != remote.main_id => bail!(
+            "{remote_uri} is a different main database (id {}), but this node is bound to {bound}",
+            remote.main_id
+        ),
+        Some(_) => Ok(()),
+        None => {
+            // First contact: bind to it so future mismatches are caught.
+            archive.index().bind_main_id(&remote.main_id)?;
+            Ok(())
+        }
+    }
+}
+
+/// Derive a fresh main-database id from the node and the clock.
+fn new_main_id(archive: &Archive) -> String {
+    format!("main-{}", archive.index().node())
+}
+
 /// Merge local-only changes into the remote snapshot before writing it back.
 fn merge_remote(remote: &Snapshot, added: &Snapshot) -> Snapshot {
     let mut merged = remote.clone();
@@ -103,12 +187,15 @@ fn merge_remote(remote: &Snapshot, added: &Snapshot) -> Snapshot {
     merged
 }
 
-/// Where the remote snapshot comes from.
-fn resolve_remote(args: &SyncArgs) -> Result<String> {
+/// Where the remote snapshot comes from: `--remote`, else `main` in config.
+fn resolve_remote(config: &Config, args: &SyncArgs) -> Result<String> {
     if let Some(remote) = &args.remote {
         return Ok(remote.clone());
     }
-    bail!("no remote given; pass --remote mz://<backend>/<path> or set one in config")
+    if let Some(main) = &config.main {
+        return Ok(main.clone());
+    }
+    bail!("no main database configured; set `main = \"mz://...\"` or pass --remote")
 }
 
 /// The lock object lives next to the database file.

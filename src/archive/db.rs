@@ -164,6 +164,26 @@ impl Index {
         &self.node
     }
 
+    /// The main-database id this node is bound to, if any.
+    pub fn bound_main_id(&self) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row("SELECT value FROM node WHERE key = 'main_id'", [], |row| {
+                row.get(0)
+            })
+            .optional()?)
+    }
+
+    /// Remember which main database this node syncs with.
+    pub fn bind_main_id(&self, main_id: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO node(key, value) VALUES ('main_id', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [main_id],
+        )?;
+        Ok(())
+    }
+
     /// Read the node id, creating one on first use.
     fn load_or_create_node(&self) -> Result<String> {
         let existing: Option<String> = self

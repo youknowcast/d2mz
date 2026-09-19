@@ -143,11 +143,12 @@ config/credential file lookup; both are overridable.
 ## Main database and sync
 
 The archive is usable with no remote at all. When a shared catalogue is
-wanted, one node holds a "main" database on any backend (S3, SFTP, a local
-path). It stores a portable JSON snapshot of the index, not a live SQLite
-file, because object stores cannot host a database that is written in place.
+wanted, there is exactly **one** main database, declared once as
+`main = "mz://..."` in the config (`--remote` overrides it per invocation).
+It stores a portable JSON snapshot of the index, not a live SQLite file,
+because object stores cannot host a database that is written in place.
 
-`d2mz sync --remote <uri>`:
+`d2mz sync`:
 
 1. download the remote snapshot (read-only, before locking)
 2. acquire a lease-based lock next to it
@@ -162,6 +163,18 @@ Merge rules:
 
 Every write stamps `entry.updated_at` and `entry.origin` (the node id), which
 is what makes last-writer-wins decidable.
+
+### One main database, enforced
+
+Because a single main database is the source of truth, two mistakes are
+worth guarding:
+
+- **Identity.** The snapshot carries a `main_id`, minted on `--init`. Each
+  node stores the id it first synced with (`node.main_id`) and refuses to
+  merge against a different one. Two catalogues can never be mixed by
+  accident.
+- **Overwrite.** `--init` on a non-empty main database fails unless
+  `--force` is given, so seeding cannot silently discard the catalogue.
 
 ### The lease lock
 

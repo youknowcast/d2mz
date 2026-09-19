@@ -24,8 +24,15 @@ pub struct MergeReport {
 }
 
 /// A snapshot exchanged with the remote database.
-#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Snapshot {
+    /// Identity of the main database this snapshot belongs to.
+    ///
+    /// Assigned on `--init` and preserved on every write. A node remembers
+    /// the id it first synced with so pointing at a *different* main
+    /// database is caught instead of silently merging two catalogues.
+    #[serde(default)]
+    pub main_id: String,
     /// All blob rows.
     pub blobs: Vec<BlobRow>,
     /// All entry rows.
@@ -40,6 +47,7 @@ impl Snapshot {
     /// Capture the full contents of an index.
     pub fn capture(index: &Index) -> Result<Snapshot> {
         Ok(Snapshot {
+            main_id: String::new(),
             blobs: index.blob_rows()?,
             entries: index.entry_rows()?,
             tags: index.tag_rows()?,
@@ -132,6 +140,7 @@ pub fn outgoing(index: &Index, remote: &Snapshot) -> Result<Snapshot> {
         .collect();
 
     Ok(Snapshot {
+        main_id: remote.main_id.clone(),
         blobs,
         entries,
         tags,

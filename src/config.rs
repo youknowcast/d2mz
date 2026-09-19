@@ -22,6 +22,13 @@ pub struct Config {
     #[serde(default = "default_archive_dir", deserialize_with = "de_pathbuf")]
     pub archive_dir: PathBuf,
 
+    /// The single shared "main" database, e.g. `mz://rfs/d2mz/main.db`.
+    ///
+    /// There is exactly one main database; it is the source of truth that
+    /// `sync` merges with. Leaving it unset keeps d2mz purely local.
+    #[serde(default)]
+    pub main: Option<String>,
+
     /// Named backends, in declaration order.
     #[serde(default, rename = "backend")]
     pub backends: Vec<BackendConfig>,
@@ -54,6 +61,7 @@ impl Default for Config {
     fn default() -> Self {
         let mut config = Config {
             archive_dir: default_archive_dir(),
+            main: None,
             backends: Vec::new(),
         };
         config.ensure_local_backend();

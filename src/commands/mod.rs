@@ -28,7 +28,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         None => Config::load()?,
     };
     let archive_dir = config.archive_dir.clone();
-    let mut backends = Backends::new(config);
+    let mut backends = Backends::new(config.clone());
 
     match cli.command {
         Command::Ls(args) => ls::run(&mut backends, args).await,
@@ -49,7 +49,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Command::Sync(args) => {
             let archive = Archive::open(&archive_dir)?;
-            sync::run(&mut backends, &archive, args).await
+            sync::run(&mut backends, &config, &archive, args).await
         }
         Command::Archive(args) => {
             let archive = Archive::open(&archive_dir)?;

@@ -208,13 +208,17 @@ pub struct ForgetArgs {
 /// Arguments for `d2mz sync`.
 #[derive(Debug, Args)]
 pub struct SyncArgs {
-    /// Remote main database, e.g. `mz://rfs/d2mz/index.db`.
+    /// Remote main database; overrides the `main` set in the config.
     #[arg(long)]
     pub remote: Option<String>,
 
     /// Seed the remote from this node, then exit.
     #[arg(long)]
     pub init: bool,
+
+    /// Allow `--init` to overwrite an existing main database.
+    #[arg(long)]
+    pub force: bool,
 
     /// Emit the result as JSON.
     #[arg(long)]
