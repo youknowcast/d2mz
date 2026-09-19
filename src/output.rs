@@ -20,6 +20,38 @@ pub struct EntryView {
     pub modified: Option<String>,
 }
 
+impl<'de> serde::Deserialize<'de> for EntryView {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        struct Raw {
+            uri: String,
+            name: String,
+            path: String,
+            kind: String,
+            size: Option<u64>,
+            modified: Option<String>,
+        }
+
+        let raw = Raw::deserialize(deserializer)?;
+        let kind = match raw.kind.as_str() {
+            "dir" => "dir",
+            "file" => "file",
+            other => return Err(serde::de::Error::custom(format!("unknown kind {other:?}"))),
+        };
+        Ok(EntryView {
+            uri: raw.uri,
+            name: raw.name,
+            path: raw.path,
+            kind,
+            size: raw.size,
+            modified: raw.modified,
+        })
+    }
+}
+
 impl EntryView {
     /// Project an OpenDAL entry into a display view.
     pub fn from_entry(backend: &str, entry: &Entry) -> EntryView {

@@ -69,6 +69,20 @@ fn ls_json_reports_paths() {
 }
 
 #[test]
+fn ls_json_is_round_trippable() {
+    let dir = fixture();
+    let output = run(d2mz().args(["ls", "--json"]).arg(dir.path()));
+    let views: Vec<d2mz::output::EntryView> =
+        serde_json::from_str(&stdout(&output)).expect("deserializes into entry views");
+    assert!(!views.is_empty());
+    assert!(
+        views
+            .iter()
+            .all(|view| view.kind == "file" || view.kind == "dir")
+    );
+}
+
+#[test]
 fn cat_streams_file_contents() {
     let dir = fixture();
     let file = dir.path().join("notes.txt");
