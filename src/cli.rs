@@ -267,7 +267,9 @@ pub struct TagListArgs {
 /// Arguments for `d2mz search`.
 #[derive(Debug, Args)]
 pub struct SearchArgs {
-    /// FTS5 query, e.g. `report`, `report OR photo`, `"exact phrase"`.
+    /// FTS5 query over entry names, paths, source URIs and tags.
+    ///
+    /// Examples: `report`, `report OR photo`, `"exact phrase"`.
     pub query: String,
 
     /// Show a long listing.
