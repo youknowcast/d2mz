@@ -15,6 +15,7 @@ pub struct EntryRecord {
     pub path: String,
     pub source: String,
     pub size: u64,
+    pub state: String,
 }
 
 impl From<&Entry> for EntryRecord {
@@ -27,16 +28,23 @@ impl From<&Entry> for EntryRecord {
             path: entry.path.clone(),
             source: entry.source.clone(),
             size: entry.size,
+            state: entry.state.as_str().to_string(),
         }
     }
 }
 
 impl EntryRecord {
-    /// A single line for `search` / `archive`: backend, path, size, hash.
+    /// A single line for `search` / `archive`: state marker, backend, path,
+    /// size and hash prefix.
     pub fn line(&self) -> String {
         let short = self.hash.get(0..8).unwrap_or(&self.hash);
+        let marker = match self.state.as_str() {
+            "missing" => "!",
+            "deleted" => "x",
+            _ => " ",
+        };
         format!(
-            "{:<8} {size:>8}  {:<8} {}",
+            "{marker}{:<8} {size:>8}  {:<8} {}",
             self.backend,
             short,
             self.path,

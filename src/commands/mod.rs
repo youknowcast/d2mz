@@ -4,9 +4,11 @@ pub mod archive;
 pub mod cat;
 pub mod export;
 pub mod find;
+pub mod forget;
 pub mod generate;
 pub mod ingest;
 pub mod ls;
+pub mod scan;
 pub mod search;
 pub mod stat;
 pub mod tag;
@@ -35,6 +37,14 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Ingest(args) => {
             let archive = Archive::open(&archive_dir)?;
             ingest::run(&mut backends, &archive, args).await
+        }
+        Command::Scan(args) => {
+            let archive = Archive::open(&archive_dir)?;
+            scan::run(&mut backends, &archive, args).await
+        }
+        Command::Forget(args) => {
+            let archive = Archive::open(&archive_dir)?;
+            forget::run(&archive, args)
         }
         Command::Archive(args) => {
             let archive = Archive::open(&archive_dir)?;

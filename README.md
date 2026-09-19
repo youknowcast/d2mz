@@ -68,6 +68,11 @@ every source you have ingested and need no URI:
 d2mz ingest -R ./photos                    # register a local tree
 d2mz ingest mz://rfs/backups --name '*.tar'
 
+d2mz scan                                   # re-check sources: present/missing
+d2mz scan mz://rfs/backups                  # only one source subtree
+d2mz archive --state missing -l             # what disappeared
+d2mz forget --id old-report.txt             # retire an entry (tombstone)
+
 d2mz search report                          # across all ingested entries
 d2mz search 'work OR holiday' -l            # name/path/source/tags only
 d2mz archive -l                             # list everything ingested
@@ -82,6 +87,20 @@ d2mz tag rm work --id docs/report.txt
 d2mz export 3f9a1c2b ./restored.jpg        # hash prefix is enough
 d2mz export 3f9a1c2b mz://rfs/restored.jpg
 ```
+
+### Source presence
+
+Sources come and go. `scan` re-checks every registered source and records
+whether it is still there:
+
+- `present` — confirmed by the latest scan
+- `missing` — absent at the latest scan; may reappear
+- `deleted` — retired with `forget`, never scanned again
+
+Missing entries keep their blob, so a file that disappears and comes back
+costs nothing to re-register. `scan` also detects changed contents (by mtime
+and size) and stores the new version alongside the old one. Default listings
+mark state: a leading `!` means missing, `x` means deleted.
 
 Default listings show the backend, size, hash prefix and path, so you can
 tell at a glance which source a hit came from.

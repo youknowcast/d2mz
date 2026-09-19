@@ -29,6 +29,10 @@ pub enum Command {
     Find(FindArgs),
     /// Copy an object into the local archive.
     Ingest(IngestArgs),
+    /// Re-check registered entries and update their presence state.
+    Scan(ScanArgs),
+    /// Retire entries so they are no longer tracked (a tombstone).
+    Forget(ForgetArgs),
     /// List archived entries.
     Archive(ArchiveArgs),
     /// Write an archived blob back out to a URI.
@@ -171,12 +175,44 @@ pub struct IngestArgs {
     pub json: bool,
 }
 
+/// Arguments for `d2mz scan`.
+#[derive(Debug, Args)]
+pub struct ScanArgs {
+    /// Only re-check entries whose source URI starts with these prefixes.
+    #[arg(value_name = "PREFIX")]
+    pub prefixes: Vec<String>,
+
+    /// Emit the results as JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// Arguments for `d2mz forget`.
+#[derive(Debug, Args)]
+pub struct ForgetArgs {
+    /// Target archived entry: an entry id, path, name or source URI.
+    #[arg(long = "id", value_name = "TARGET")]
+    pub targets: Vec<String>,
+
+    /// Apply to every entry whose path or source starts with this prefix.
+    #[arg(long, value_name = "PREFIX")]
+    pub prefix: Option<String>,
+
+    /// Emit the results as JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
 /// Arguments for `d2mz archive`.
 #[derive(Debug, Args)]
 pub struct ArchiveArgs {
     /// Only show entries under this path prefix.
     #[arg(long)]
     pub prefix: Option<String>,
+
+    /// Show only entries in this state.
+    #[arg(long, value_enum)]
+    pub state: Option<StateFilter>,
 
     /// Show a long listing.
     #[arg(short, long)]
@@ -185,6 +221,17 @@ pub struct ArchiveArgs {
     /// Emit the listing as JSON.
     #[arg(long)]
     pub json: bool,
+}
+
+/// Presence filter for `archive`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum StateFilter {
+    /// Sources confirmed present.
+    Present,
+    /// Sources absent at the last scan.
+    Missing,
+    /// Entries explicitly retired with `forget`.
+    Deleted,
 }
 
 /// Arguments for `d2mz export`.

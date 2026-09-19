@@ -124,6 +124,27 @@ fn hash_counter() -> u64 {
     COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
+/// Whether the archive still holds the blob on disk.
+pub fn blob_is_current(archive: &Archive, hash: &str) -> Result<bool> {
+    Ok(archive.has_blob_on_disk(hash))
+}
+
+/// Re-ingest the object referenced by an existing entry.
+///
+/// Used by `scan` when an entry's mtime or size has changed.
+pub async fn ingest_from_entry(
+    archive: &Archive,
+    operator: &Operator,
+    entry: &crate::archive::db::Entry,
+    backend: &str,
+) -> Result<IngestOutcome> {
+    let path = entry
+        .source
+        .strip_prefix(&format!("mz://{backend}/"))
+        .unwrap_or(&entry.path);
+    ingest(archive, operator, backend, path, &entry.name).await
+}
+
 /// Seconds since the Unix epoch.
 pub fn unix_now() -> i64 {
     std::time::SystemTime::now()

@@ -50,6 +50,11 @@ impl Archive {
     pub fn read_blob(&self, hash: &str) -> Result<Vec<u8>> {
         fs::read(self.blob_path(hash)).with_context(|| format!("reading blob {hash}"))
     }
+
+    /// Whether a blob is both indexed and present on disk.
+    pub fn has_blob_on_disk(&self, hash: &str) -> bool {
+        self.blob_path(hash).exists()
+    }
 }
 
 /// Shard a hash into `aa/bb/<hash>` to avoid one enormous directory.
