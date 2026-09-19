@@ -120,6 +120,9 @@ scanning.
 - **M3** (done) archive schema, `ingest` / `export`, BLAKE3 dedup.
 - **M4** (done) tags and search (SQLite FTS5).
 - **M5** (done) static musl build, shell completions, man page.
+- **M6** (done) source presence + `scan` / `forget`.
+- **M7** (done) remote main database with a lease-based lock.
+- **M8** (done) `open` by kind with shared handlers, and cached thumbnails.
 
 ## Backends
 
@@ -189,6 +192,36 @@ it.
 IDs are keyed by URI (`mz://<backend>/<path>`), so a shared main database
 assumes every node addresses the same source the same way — configure the
 same backend names on each machine.
+
+## Handlers and thumbnails
+
+### Opening by kind
+
+`open` classifies a path by extension into `text | image | video | audio |
+pdf | other`, then resolves a command:
+
+1. `--with` on the command line
+2. the index's `handler` table (extension-specific, then the kind's `*`)
+3. a built-in default: the pager for text, the OS opener otherwise
+
+Handlers live in `handler(kind, matcher, app, updated_at, origin)` and take
+part in sync, so a shared main database shares how files open. Directories are
+listed, executables are never run. Remote objects are copied to a temp file
+first; remote text goes straight to the pager.
+
+### Thumbnails
+
+Thumbnails are keyed by the source blob's BLAKE3 hash and stored at
+`thumb/ab/cd/<hash>.webp`, recorded in `thumb(blob_hash, width, height,
+format, size, created_at)`. Two properties follow from content addressing:
+
+- identical contents share one thumbnail;
+- a thumbnail is generated **once**, on first use, so browsing never costs
+  extra network reads.
+
+Images are decoded and resized in-process (`image` crate, pure Rust). Video
+frames come from `ffmpeg` when present. Terminal rendering prefers `chafa`,
+`viu`, `tiv` or `img2txt`, falling back to reporting the path.
 
 ## Static builds
 

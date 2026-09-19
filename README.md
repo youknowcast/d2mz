@@ -88,6 +88,44 @@ d2mz export 3f9a1c2b ./restored.jpg        # hash prefix is enough
 d2mz export 3f9a1c2b mz://rfs/restored.jpg
 ```
 
+### Opening files
+
+`open` picks an application by file kind (`--as` overrides detection) and
+runs it. Handlers are stored in the index and shared through `sync`, so every
+machine opens the same types the same way.
+
+```sh
+d2mz open ./notes.md                  # text -> $PAGER
+d2mz open ./photo.png                 # image/video -> handler or xdg-open
+d2mz open --with 'imv {}' ./a.jpg     # this once
+d2mz open --print ./a.jpg             # just the local path
+
+d2mz handler set image --app 'imv {}'
+d2mz handler set image --matcher .svg --app 'inkscape {}'
+d2mz handler list
+d2mz handler rm image --matcher .svg
+```
+
+Directories are listed, executables are never run. Remote objects are
+materialised into a temporary file; remote text is piped to the pager.
+
+### Thumbnails
+
+Media thumbnails are generated once, keyed by the blob's BLAKE3 hash, and
+cached under `archive_dir/thumb/` — identical contents share one thumbnail,
+and **no network access happens after the first read**.
+
+```sh
+d2mz thumb ./photo.png                # render in the terminal (if a viewer exists)
+d2mz thumb -l ./photo.png             # also print dimensions
+d2mz thumb --print ./photo.png        # just the cached path
+```
+
+Images are resized in-process (`image` crate). Videos use `ffmpeg` for the
+first frame when it is installed; otherwise the command falls back to the
+blob path. Terminal rendering uses `chafa`, `viu`, `tiv` or `img2txt` if one
+is present, and otherwise just reports the path.
+
 ### Source presence
 
 Sources come and go. `scan` re-checks every registered source and records
