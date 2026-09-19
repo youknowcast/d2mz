@@ -130,3 +130,27 @@ fn ls_recursive_descends_into_subdirectories() {
     assert!(listing.contains("deep.log"), "{listing}");
     assert!(listing.contains("nested/"), "{listing}");
 }
+
+#[test]
+fn find_filters_by_name_glob() {
+    let dir = fixture();
+    let listing = stdout(&run(d2mz()
+        .args(["find", "--name", "*.log"])
+        .arg(dir.path())));
+
+    assert!(listing.contains("deep.log"), "{listing}");
+    assert!(!listing.contains("notes.txt"), "{listing}");
+    assert!(!listing.contains("skip.md"), "{listing}");
+}
+
+#[test]
+fn find_accepts_comma_separated_globs() {
+    let dir = fixture();
+    let listing = stdout(&run(d2mz()
+        .args(["find", "--name", "*.log, *.md"])
+        .arg(dir.path())));
+
+    assert!(listing.contains("deep.log"), "{listing}");
+    assert!(listing.contains("skip.md"), "{listing}");
+    assert!(!listing.contains("notes.txt"), "{listing}");
+}

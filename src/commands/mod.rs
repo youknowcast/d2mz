@@ -1,6 +1,7 @@
 //! Subcommand implementations.
 
 pub mod cat;
+pub mod find;
 pub mod ls;
 pub mod stat;
 
@@ -22,5 +23,6 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Ls(args) => ls::run(&mut backends, args).await,
         Command::Cat(args) => cat::run(&mut backends, args).await,
         Command::Stat(args) => stat::run(&mut backends, args).await,
+        Command::Find(args) => find::run(&mut backends, args).await,
     }
 }
