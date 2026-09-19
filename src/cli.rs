@@ -37,6 +37,18 @@ pub enum Command {
     Tag(TagArgs),
     /// Full-text search across archived entries.
     Search(SearchArgs),
+    /// Print a shell completion script to stdout.
+    Completions(CompletionsArgs),
+    /// Print the manual page (roff) to stdout.
+    Man,
+}
+
+/// Arguments for `d2mz completions`.
+#[derive(Debug, Args)]
+pub struct CompletionsArgs {
+    /// Shell to generate completions for.
+    #[arg(value_enum)]
+    pub shell: clap_complete::Shell,
 }
 
 /// A byte-size filter value such as `10K`, `5M`, or `2G`.
