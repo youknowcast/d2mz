@@ -52,10 +52,12 @@ impl BackendConfig {
 
 impl Default for Config {
     fn default() -> Self {
-        Config {
+        let mut config = Config {
             archive_dir: default_archive_dir(),
             backends: Vec::new(),
-        }
+        };
+        config.ensure_local_backend();
+        config
     }
 }
 
@@ -154,10 +156,10 @@ mod tests {
 
     #[test]
     fn default_has_implicit_local_backend() {
-        let config = Config::default();
-        assert!(config.backends.is_empty());
-        let mut config = config;
+        let mut config = Config::default();
+        assert_eq!(config.backends.len(), 1);
         config.ensure_local_backend();
+        assert_eq!(config.backends.len(), 1, "ensure must be idempotent");
         let local = config.backend(LOCAL_BACKEND).expect("local backend");
         assert_eq!(local.scheme, "fs");
         assert_eq!(local.opendal_options().get("root").unwrap(), "/");
