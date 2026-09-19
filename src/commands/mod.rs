@@ -35,7 +35,11 @@ pub async fn run(cli: Cli) -> Result<()> {
 
     match cli.command {
         Command::Ls(args) => ls::run(&mut backends, args).await,
-        Command::Cat(args) => cat::run(&mut backends, args).await,
+        Command::Cat(args) => {
+            // Open the archive lazily so a vanished source can still be read.
+            let archive = Archive::open(&archive_dir).ok();
+            cat::run(&mut backends, archive.as_ref(), args).await
+        }
         Command::Stat(args) => stat::run(&mut backends, args).await,
         Command::Find(args) => find::run(&mut backends, args).await,
         Command::Ingest(args) => {

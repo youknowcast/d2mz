@@ -18,8 +18,10 @@ const VIEWERS: [&str; 4] = ["chafa", "viu", "tiv", "img2txt"];
 pub async fn run(backends: &mut Backends, archive: &Archive, args: ThumbArgs) -> Result<()> {
     let uri = Uri::parse(&args.uri)?;
 
-    // The thumbnail is keyed by content hash, so the object must be archived.
-    let hash = hash_for(archive, &uri)?;
+    // The thumbnail is keyed by content hash. If the object is not archived
+    // yet, ingest it first: it is the same bytes either way, so requiring a
+    // separate command would be busywork.
+    let hash = hash_for(backends, archive, &uri).await?;
     let name = uri.path().rsplit('/').next().unwrap_or(uri.path());
     let kind = kind_of(name);
 
@@ -48,24 +50,21 @@ pub async fn run(backends: &mut Backends, archive: &Archive, args: ThumbArgs) ->
             crate::output::human_size(thumb.size)
         );
     }
-    let _ = backends;
     Ok(())
 }
 
-/// The blob hash for a URI, looking it up in the index.
-fn hash_for(archive: &Archive, uri: &Uri) -> Result<String> {
-    let entry = archive
-        .index()
-        .entry_by_source(&uri.to_string())?
-        .or_else(|| {
-            archive
-                .index()
-                .find_entries(uri.path())
-                .ok()
-                .and_then(|mut e| e.pop())
-        })
-        .with_context(|| format!("{uri} is not archived; run `d2mz ingest {uri}` first"))?;
-    Ok(entry.blob)
+/// The blob hash for a URI, ingesting it on first use if needed.
+async fn hash_for(backends: &mut Backends, archive: &Archive, uri: &Uri) -> Result<String> {
+    if let Some(entry) = archive.index().entry_by_source(&uri.to_string())? {
+        return Ok(entry.blob);
+    }
+
+    let operator = backends.resolve(uri)?;
+    let name = uri.path().rsplit('/').next().unwrap_or(uri.path());
+    let outcome =
+        crate::archive::ingest::ingest(archive, &operator, uri.backend(), uri.path(), name, false)
+            .await?;
+    Ok(outcome.hash)
 }
 
 /// Render a thumbnail into the terminal with the best available viewer.

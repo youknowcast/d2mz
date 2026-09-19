@@ -80,6 +80,41 @@ pub fn kind_of(name: &str) -> Kind {
     }
 }
 
+/// Refine a kind using the leading bytes of the file.
+///
+/// Only called when the extension was inconclusive, so ordinary files pay
+/// nothing. This is what removes most need for `--as`.
+pub fn sniff_kind(leading: &[u8]) -> Kind {
+    if leading.starts_with(&[0x89, b'P', b'N', b'G'])
+        || leading.starts_with(&[0xff, 0xd8, 0xff])
+        || leading.starts_with(b"GIF8")
+    {
+        return Kind::Image;
+    }
+    if leading.len() >= 12 && &leading[0..4] == b"RIFF" && &leading[8..12] == b"WEBP" {
+        return Kind::Image;
+    }
+    if leading.starts_with(b"%PDF-") {
+        return Kind::Pdf;
+    }
+    if leading.len() >= 12 && &leading[4..8] == b"ftyp" {
+        return Kind::Video;
+    }
+    Kind::Other
+}
+
+/// Resolve a kind from the name, sniffing the head when that is unclear.
+pub fn classify(name: &str, leading: Option<&[u8]>) -> Kind {
+    let by_name = kind_of(name);
+    if by_name != Kind::Other {
+        return by_name;
+    }
+    match leading {
+        Some(bytes) => sniff_kind(bytes),
+        None => Kind::Other,
+    }
+}
+
 /// The lowercased extension including the dot, if any.
 pub fn extension_of(name: &str) -> Option<String> {
     let base = name.rsplit('/').next().unwrap_or(name);
@@ -94,10 +129,20 @@ pub async fn run(backends: &mut Backends, archive: &Archive, args: OpenArgs) -> 
     let uri = Uri::parse(&args.uri)?;
     let operator = backends.resolve(&uri)?;
 
-    let metadata = operator
-        .stat(uri.path())
-        .await
-        .with_context(|| format!("stat {uri}"))?;
+    let metadata = operator.stat(uri.path()).await;
+
+    // A vanished source falls back to the archived blob, which is precisely
+    // what the archive is for.
+    let metadata = match metadata {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == opendal::ErrorKind::NotFound => {
+            if let Some((_, path)) = archive.blob_for_source(&uri.to_string())? {
+                return open_archived(archive, &uri, &path, &args);
+            }
+            return Err(error).with_context(|| format!("stat {uri}"));
+        }
+        Err(error) => return Err(error).with_context(|| format!("stat {uri}")),
+    };
 
     if metadata.is_dir() {
         // Directories are listed rather than "opened".
@@ -109,7 +154,11 @@ pub async fn run(backends: &mut Backends, archive: &Archive, args: OpenArgs) -> 
     let name = uri.path().rsplit('/').next().unwrap_or(uri.path());
     let kind = match args.as_kind.as_deref() {
         Some(raw) => Kind::parse(raw).with_context(|| format!("unknown kind {raw:?}"))?,
-        None => kind_of(name),
+        None => {
+            // Only peek at the bytes when the extension said nothing.
+            let leading = peek(backends, &uri).await;
+            classify(name, leading.as_deref())
+        }
     };
     let extension = extension_of(name);
 
@@ -132,6 +181,32 @@ pub async fn run(backends: &mut Backends, archive: &Archive, args: OpenArgs) -> 
     let command = resolve_command(archive, kind, &extension, args.with.as_deref())?;
     let path = materialise(backends, &uri).await?;
     launch(&command, &path)
+}
+
+/// Open a blob that already lives in the archive (source is gone).
+fn open_archived(
+    archive: &Archive,
+    uri: &Uri,
+    blob: &std::path::Path,
+    args: &OpenArgs,
+) -> Result<()> {
+    let name = uri.path().rsplit('/').next().unwrap_or(uri.path());
+    let kind = match args.as_kind.as_deref() {
+        Some(raw) => Kind::parse(raw).with_context(|| format!("unknown kind {raw:?}"))?,
+        None => {
+            let leading = read_leading(blob);
+            classify(name, leading.as_deref())
+        }
+    };
+    let extension = extension_of(name);
+
+    if args.print {
+        println!("{}", blob.display());
+        return Ok(());
+    }
+
+    let command = resolve_command(archive, kind, &extension, args.with.as_deref())?;
+    launch(&command, blob)
 }
 
 /// The handler stored in the index, if any.
@@ -225,6 +300,28 @@ async fn page(backends: &mut Backends, uri: &Uri, _archive: &Archive) -> Result<
     Ok(())
 }
 
+/// Read the leading bytes of an object without materialising it.
+///
+/// Best-effort: an error just means no sniffing happens.
+async fn peek(backends: &mut Backends, uri: &Uri) -> Option<Vec<u8>> {
+    if kind_of(uri.path()) != Kind::Other {
+        // The extension already answered; do not read anything.
+        return None;
+    }
+    let operator = backends.resolve(uri).ok()?;
+    let buffer = operator.read_with(uri.path()).range(0..16).await.ok()?;
+    Some(buffer.to_vec())
+}
+
+/// Read the leading bytes of a local file, best-effort.
+fn read_leading(path: &std::path::Path) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut buffer = [0u8; 16];
+    let read = file.read(&mut buffer).ok()?;
+    Some(buffer[..read].to_vec())
+}
+
 /// Ensure the object exists locally and return its path.
 async fn materialise(backends: &mut Backends, uri: &Uri) -> Result<PathBuf> {
     if uri.backend() == "local" {
@@ -309,6 +406,32 @@ mod tests {
         assert_eq!(extension_of("a/b/Photo.PNG").as_deref(), Some(".png"));
         assert_eq!(extension_of("noext"), None);
         assert_eq!(extension_of("trailing."), None);
+    }
+
+    #[test]
+    fn sniffs_common_media_signatures() {
+        assert_eq!(sniff_kind(&[0x89, b'P', b'N', b'G', b'\r']), Kind::Image);
+        assert_eq!(sniff_kind(&[0xff, 0xd8, 0xff, 0xe0]), Kind::Image);
+        assert_eq!(sniff_kind(b"GIF89a....."), Kind::Image);
+        assert_eq!(sniff_kind(b"%PDF-1.7"), Kind::Pdf);
+
+        let mut mp4 = b"....ftypisom".to_vec();
+        mp4[0] = 0;
+        assert_eq!(sniff_kind(&mp4), Kind::Video);
+
+        assert_eq!(sniff_kind(b"plain text here"), Kind::Other);
+    }
+
+    #[test]
+    fn classify_prefers_the_extension_then_sniffs() {
+        // A known extension wins without any bytes.
+        assert_eq!(classify("photo.jpg", None), Kind::Image);
+        // An unknown extension falls back to the leading bytes.
+        assert_eq!(
+            classify("mystery", Some(&[0x89, b'P', b'N', b'G'])),
+            Kind::Image
+        );
+        assert_eq!(classify("mystery", None), Kind::Other);
     }
 
     #[test]
