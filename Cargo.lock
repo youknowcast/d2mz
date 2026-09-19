@@ -369,6 +369,7 @@ dependencies = [
  "dirs",
  "opendal",
  "serde",
+ "serde_json",
  "tokio",
  "toml",
 ]

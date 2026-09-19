@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 
 use crate::backend::Backends;
 use crate::cli::LsArgs;
+use crate::output::EntryView;
 use crate::uri::Uri;
 
 pub async fn run(backends: &mut Backends, args: LsArgs) -> Result<()> {
@@ -29,8 +30,21 @@ pub async fn run(backends: &mut Backends, args: LsArgs) -> Result<()> {
     entries.retain(|entry| entry.path().trim_end_matches('/') != self_path);
     entries.sort_by(|a, b| a.path().cmp(b.path()));
 
-    for entry in entries {
-        println!("{}", entry.name());
+    let views: Vec<EntryView> = entries
+        .iter()
+        .map(|entry| EntryView::from_entry(uri.backend(), entry))
+        .collect();
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&views)?);
+    } else if args.long {
+        for view in &views {
+            println!("{}", view.long());
+        }
+    } else {
+        for view in &views {
+            println!("{}", view.plain());
+        }
     }
     Ok(())
 }

@@ -32,6 +32,14 @@ pub enum Command {
 pub struct LsArgs {
     /// Target URI.
     pub uri: Option<String>,
+
+    /// Show a long listing.
+    #[arg(short, long)]
+    pub long: bool,
+
+    /// Emit the listing as JSON.
+    #[arg(long)]
+    pub json: bool,
 }
 
 /// Arguments for `d2mz cat`.
