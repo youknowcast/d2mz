@@ -17,7 +17,23 @@ work no matter where the bytes live.
 
 ```sh
 cargo build --release
-# binary at target/release/d2mz (~8M, static)
+# dynamic glibc binary at target/release/d2mz
+
+scripts/build-static.sh                 # fully static musl binary via zig
+scripts/build-static.sh --install-dir ~/.local/bin
+```
+
+The static build needs a musl C compiler because bundled SQLite and ring
+compile C; the script downloads zig to provide one without touching system
+packages.
+
+## Shell integration
+
+```sh
+d2mz completions bash > ~/.local/share/bash-completion/completions/d2mz
+d2mz completions zsh  > ~/.zfunc/_d2mz
+d2mz completions fish > ~/.config/fish/completions/d2mz.fish
+d2mz man > /usr/local/share/man/man1/d2mz.1   # roff
 ```
 
 ## Usage
@@ -58,7 +74,7 @@ d2mz tag list                               # all tags with counts
 d2mz tag rm work --id docs/report.txt
 
 d2mz search report                          # FTS5 over name/path/source/tags
-d2mz search 'work OR holiday' -l
+d2mz search 'work OR holiday' -l             # content is not indexed yet
 
 d2mz export 3f9a1c2b ./restored.jpg        # hash prefix is enough
 d2mz export 3f9a1c2b mz://rfs/restored.jpg
