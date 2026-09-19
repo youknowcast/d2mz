@@ -12,6 +12,7 @@ use anyhow::{Context, Result};
 pub mod db;
 pub mod ingest;
 pub mod list;
+pub mod lock;
 pub mod sync;
 
 use db::Index;
