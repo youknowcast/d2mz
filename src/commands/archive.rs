@@ -20,7 +20,7 @@ pub fn run(archive: &Archive, args: ArchiveArgs) -> Result<()> {
         }
     } else {
         for record in &records {
-            println!("{}", record.source);
+            println!("{}", record.line());
         }
     }
     Ok(())

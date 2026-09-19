@@ -16,8 +16,15 @@ pub fn run(archive: &Archive, args: SearchArgs) -> Result<()> {
         }
     } else {
         for record in &records {
-            println!("{}", record.source);
+            println!("{}", record.line());
         }
+    }
+
+    if records.is_empty() {
+        eprintln!(
+            "no matches for {:?} (searches ingested entries only)",
+            args.query
+        );
     }
     Ok(())
 }

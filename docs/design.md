@@ -89,6 +89,18 @@ sorts by path. When the target is a file it is shown as a single entry.
   prefix to a blob and writes it back to any backend.
 - Tag targets resolve by entry id, exact path/name/source, a path suffix
   (`docs/report.txt`), or a path/source prefix.
+
+### Register explicitly, search globally
+
+`ingest` is the only command that reads a backend. It records the source URI
+(`mz://<backend>/<path>`), so `search`, `archive` and `tag list` are pure
+local index queries: no backend is contacted, no URI is needed, and results
+span every source that has been ingested. The default listing shows the
+backend, size, hash prefix and path so the origin of each hit is obvious.
+
+This split keeps the mental model simple — *write paths are explicit, read
+paths are global* — and makes search latency independent of remote backends.
+
 - The index opens with WAL mode; SQLite stores sizes as `i64`, converted at
   the boundary.
 

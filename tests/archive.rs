@@ -164,6 +164,39 @@ fn search_finds_by_tag_and_name() {
     assert_eq!(parsed.len(), 1);
 }
 
+#[test]
+fn search_is_cross_backend_and_needs_no_uri() {
+    // Two separate source trees stand in for two backends. Search never
+    // touches them again; it only reads the local index.
+    let archive = tempfile::tempdir().unwrap();
+    let first = tempfile::tempdir().unwrap();
+    let second = tempfile::tempdir().unwrap();
+    fs::write(first.path().join("alpha-report.txt"), "a\n").unwrap();
+    fs::write(second.path().join("beta-report.txt"), "b\n").unwrap();
+
+    run(d2mz(archive.path())
+        .args(["ingest"])
+        .arg(first.path().join("alpha-report.txt")));
+    run(d2mz(archive.path())
+        .args(["ingest"])
+        .arg(second.path().join("beta-report.txt")));
+
+    let listing = stdout(&run(d2mz(archive.path()).args(["search", "report"])));
+    assert!(listing.contains("alpha-report.txt"), "{listing}");
+    assert!(listing.contains("beta-report.txt"), "{listing}");
+
+    // The default output names the backend for each hit.
+    let line = listing.lines().next().unwrap();
+    assert!(line.starts_with("local"), "{line}");
+
+    // JSON exposes the backend too.
+    let json = stdout(&run(
+        d2mz(archive.path()).args(["search", "report", "--json"])
+    ));
+    let records: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+    assert!(records.iter().all(|record| record["backend"] == "local"));
+}
+
 fn count_files(dir: &Path) -> usize {
     let mut count = 0;
     let mut stack = vec![dir.to_path_buf()];

@@ -60,11 +60,17 @@ contents are written once and shared between entries. `export` writes a blob
 back out to any backend. Tags and full-text search run on the same SQLite
 index.
 
+Registering is explicit and per-source; **searching is not**. `search` and
+`archive` never contact a backend — they query the local index, so they span
+every source you have ingested and need no URI:
+
 ```sh
-d2mz ingest -R ./photos                    # ingest a tree
+d2mz ingest -R ./photos                    # register a local tree
 d2mz ingest mz://rfs/backups --name '*.tar'
 
-d2mz archive -l                            # list archived entries
+d2mz search report                          # across all ingested entries
+d2mz search 'work OR holiday' -l            # name/path/source/tags only
+d2mz archive -l                             # list everything ingested
 d2mz archive --prefix photos/ --json
 
 d2mz tag add holiday --id photos/beach.jpg # by path, name or source URI
@@ -73,12 +79,12 @@ d2mz tag list holidays                      # entries carrying a tag
 d2mz tag list                               # all tags with counts
 d2mz tag rm work --id docs/report.txt
 
-d2mz search report                          # FTS5 over name/path/source/tags
-d2mz search 'work OR holiday' -l             # content is not indexed yet
-
 d2mz export 3f9a1c2b ./restored.jpg        # hash prefix is enough
 d2mz export 3f9a1c2b mz://rfs/restored.jpg
 ```
+
+Default listings show the backend, size, hash prefix and path, so you can
+tell at a glance which source a hit came from.
 
 `find` accepts a comma-separated glob (`--name '*.log,*.txt'`) and sizes
 such as `10K`, `5M`, `2G`.
