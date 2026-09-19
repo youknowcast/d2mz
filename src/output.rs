@@ -1,6 +1,6 @@
 //! Presentation helpers shared by the browse commands.
 
-use opendal::Entry;
+use opendal::{Entry, Metadata};
 use serde::Serialize;
 
 /// A backend-neutral view of one listed entry.
@@ -23,12 +23,21 @@ pub struct EntryView {
 impl EntryView {
     /// Project an OpenDAL entry into a display view.
     pub fn from_entry(backend: &str, entry: &Entry) -> EntryView {
-        let metadata = entry.metadata();
+        EntryView::from_metadata(backend, entry.path(), entry.metadata())
+    }
+
+    /// Project a path plus metadata into a display view.
+    pub fn from_metadata(backend: &str, path: &str, metadata: &Metadata) -> EntryView {
         let is_dir = metadata.is_dir();
-        let path = entry.path().trim_end_matches('/').to_string();
+        let path = path.trim_end_matches('/').to_string();
+        let name = path
+            .rsplit_once('/')
+            .map(|(_, name)| name)
+            .unwrap_or(&path)
+            .to_string();
         EntryView {
             uri: format!("mz://{backend}/{path}"),
-            name: entry.name().trim_end_matches('/').to_string(),
+            name,
             path,
             kind: if is_dir { "dir" } else { "file" },
             size: (!is_dir).then(|| metadata.content_length()),

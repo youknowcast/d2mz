@@ -1,6 +1,7 @@
 use std::env;
 
 use anyhow::{Context, Result};
+use opendal::Operator;
 
 use crate::backend::Backends;
 use crate::cli::LsArgs;
@@ -11,6 +12,42 @@ pub async fn run(backends: &mut Backends, args: LsArgs) -> Result<()> {
     let uri = resolve_target(args.uri)?;
     let operator = backends.resolve(&uri)?;
 
+    let views = match single_file(&operator, &uri).await {
+        Some(view) => vec![view],
+        None => list_children(&operator, &uri).await?,
+    };
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&views)?);
+    } else if args.long {
+        for view in &views {
+            println!("{}", view.long());
+        }
+    } else {
+        for view in &views {
+            println!("{}", view.plain());
+        }
+    }
+    Ok(())
+}
+
+/// When the target is a file, return it as a single entry.
+async fn single_file(operator: &Operator, uri: &Uri) -> Option<EntryView> {
+    if uri.is_root() {
+        return None;
+    }
+    match operator.stat(uri.path()).await {
+        Ok(metadata) if metadata.is_file() => Some(EntryView::from_metadata(
+            uri.backend(),
+            uri.path(),
+            &metadata,
+        )),
+        _ => None,
+    }
+}
+
+/// List the immediate children of a directory-like target.
+async fn list_children(operator: &Operator, uri: &Uri) -> Result<Vec<EntryView>> {
     // A directory without a trailing slash lists the entry itself on some
     // backends; treat the target as a prefix instead.
     let prefix = match uri.path() {
@@ -30,23 +67,10 @@ pub async fn run(backends: &mut Backends, args: LsArgs) -> Result<()> {
     entries.retain(|entry| entry.path().trim_end_matches('/') != self_path);
     entries.sort_by(|a, b| a.path().cmp(b.path()));
 
-    let views: Vec<EntryView> = entries
+    Ok(entries
         .iter()
         .map(|entry| EntryView::from_entry(uri.backend(), entry))
-        .collect();
-
-    if args.json {
-        println!("{}", serde_json::to_string_pretty(&views)?);
-    } else if args.long {
-        for view in &views {
-            println!("{}", view.long());
-        }
-    } else {
-        for view in &views {
-            println!("{}", view.plain());
-        }
-    }
-    Ok(())
+        .collect())
 }
 
 /// Use the given URI, or the current directory when omitted.
