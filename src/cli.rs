@@ -54,4 +54,8 @@ pub struct CatArgs {
 pub struct StatArgs {
     /// Target URI.
     pub uri: String,
+
+    /// Emit the metadata as JSON.
+    #[arg(long)]
+    pub json: bool,
 }

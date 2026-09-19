@@ -71,6 +71,68 @@ impl EntryView {
     }
 }
 
+/// Detailed metadata for a single object, used by `stat`.
+#[derive(Debug, Clone, Serialize)]
+pub struct ObjectView {
+    /// Fully qualified `mz://` URI.
+    pub uri: String,
+    /// Final path segment.
+    pub name: String,
+    /// Backend-relative path.
+    pub path: String,
+    /// `"dir"` or `"file"`.
+    pub kind: &'static str,
+    /// Size in bytes; `null` for directories.
+    pub size: Option<u64>,
+    /// Last modification time as RFC 3339, when known.
+    pub modified: Option<String>,
+    /// MIME type, when advertised by the backend.
+    pub content_type: Option<String>,
+    /// ETag, when advertised by the backend.
+    pub etag: Option<String>,
+}
+
+impl ObjectView {
+    /// Project a path plus metadata into an object view.
+    pub fn from_metadata(backend: &str, path: &str, metadata: &Metadata) -> ObjectView {
+        let base = EntryView::from_metadata(backend, path, metadata);
+        ObjectView {
+            uri: base.uri,
+            name: base.name,
+            path: base.path,
+            kind: base.kind,
+            size: base.size,
+            modified: base.modified,
+            content_type: metadata.content_type().map(str::to_string),
+            etag: metadata.etag().map(str::to_string),
+        }
+    }
+
+    /// Multi-line human-readable rendering.
+    pub fn verbose(&self) -> String {
+        let size = self
+            .size
+            .map(human_size)
+            .unwrap_or_else(|| "-".to_string());
+        let mut lines = vec![
+            format!("uri:          {}", self.uri),
+            format!("type:         {}", self.kind),
+            format!("size:         {size}"),
+            format!(
+                "modified:     {}",
+                self.modified.as_deref().unwrap_or("-")
+            ),
+        ];
+        if let Some(content_type) = &self.content_type {
+            lines.push(format!("content-type: {content_type}"));
+        }
+        if let Some(etag) = &self.etag {
+            lines.push(format!("etag:         {etag}"));
+        }
+        lines.join("\n")
+    }
+}
+
 /// Render a byte count using binary-ish short units.
 pub fn human_size(bytes: u64) -> String {
     const UNITS: [&str; 6] = ["B", "K", "M", "G", "T", "P"];
