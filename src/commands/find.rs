@@ -3,12 +3,15 @@ use std::env;
 use anyhow::{Context, Result};
 use globset::{Glob, GlobSetBuilder};
 
+use crate::archive::Archive;
+use crate::archive::db::EntryState;
 use crate::backend::Backends;
 use crate::browse;
 use crate::cli::FindArgs;
+use crate::output::EntryView;
 use crate::uri::Uri;
 
-pub async fn run(backends: &mut Backends, args: FindArgs) -> Result<()> {
+pub async fn run(backends: &mut Backends, archive: Option<&Archive>, args: FindArgs) -> Result<()> {
     let uri = match &args.uri {
         Some(raw) => Uri::parse(raw)?,
         None => {
@@ -16,10 +19,18 @@ pub async fn run(backends: &mut Backends, args: FindArgs) -> Result<()> {
             Uri::parse(&cwd.to_string_lossy())?
         }
     };
-    let operator = backends.resolve(&uri)?;
 
     let name = build_glob(args.name.as_deref())?;
-    let mut views = browse::list_recursive(&operator, &uri).await?;
+
+    // If everything under this prefix is already archived, answer from the
+    // index: it is local and needs no backend round-trips.
+    let mut views = match archive.and_then(|archive| archived_views(archive, &uri).ok().flatten()) {
+        Some(views) => views,
+        None => {
+            let operator = backends.resolve(&uri)?;
+            browse::list_recursive(&operator, &uri).await?
+        }
+    };
 
     views.retain(|view| {
         if view.kind == "dir" {
@@ -44,6 +55,35 @@ pub async fn run(backends: &mut Backends, args: FindArgs) -> Result<()> {
     });
 
     browse::print_views(&views, args.long, args.json)
+}
+
+/// Entry views for an archived prefix, or `None` when nothing is recorded.
+///
+/// Only entries the archive believes are present are returned, so a stale
+/// prefix still falls back to walking the backend.
+fn archived_views(archive: &Archive, uri: &Uri) -> Result<Option<Vec<EntryView>>> {
+    let prefix = format!("mz://{}/{}", uri.backend(), prefix_of(uri.path()));
+    let entries = archive.index().entries_for_prefix(&prefix)?;
+    if entries.is_empty() {
+        return Ok(None);
+    }
+    // Ignore retired entries; missing ones are still worth reporting.
+    let views: Vec<EntryView> = entries
+        .iter()
+        .filter(|entry| entry.state != EntryState::Deleted)
+        .map(EntryView::from_archived)
+        .collect();
+    Ok(Some(views))
+}
+
+fn prefix_of(path: &str) -> String {
+    if path.is_empty() {
+        String::new()
+    } else if path.ends_with('/') {
+        path.to_string()
+    } else {
+        format!("{path}/")
+    }
 }
 
 fn build_glob(pattern: Option<&str>) -> Result<Option<globset::GlobSet>> {

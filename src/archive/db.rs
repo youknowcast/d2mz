@@ -541,6 +541,28 @@ impl Index {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
+    /// All entries whose blob hash starts with `prefix`.
+    pub fn entries_by_blob_prefix(&self, prefix: &str) -> Result<Vec<Entry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT e.id, e.blob_hash, e.name, e.path, e.source, e.size, e.created_at, e.mtime, e.state, e.seen_at, e.updated_at, e.origin
+             FROM entry e JOIN blob b ON b.hash = e.blob_hash
+             WHERE b.hash LIKE ?1 ORDER BY e.path",
+        )?;
+        let rows = stmt.query_map([format!("{prefix}%")], row_to_entry)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Whether `tag` exists.
+    pub fn has_tag(&self, tag: &str) -> Result<bool> {
+        let found: Option<i64> = self
+            .conn
+            .query_row("SELECT 1 FROM tag WHERE tag = ?1 LIMIT 1", [tag], |row| {
+                row.get(0)
+            })
+            .optional()?;
+        Ok(found.is_some())
+    }
+
     /// Every tag in use, with counts.
     pub fn tags(&self) -> Result<Vec<TagStat>> {
         let mut stmt = self

@@ -41,7 +41,12 @@ pub async fn run(cli: Cli) -> Result<()> {
             cat::run(&mut backends, archive.as_ref(), args).await
         }
         Command::Stat(args) => stat::run(&mut backends, args).await,
-        Command::Find(args) => find::run(&mut backends, args).await,
+        Command::Find(args) => {
+            // Open the archive lazily: an already-archived prefix is answered
+            // locally, otherwise find walks the backend.
+            let archive = Archive::open(&archive_dir).ok();
+            find::run(&mut backends, archive.as_ref(), args).await
+        }
         Command::Ingest(args) => {
             let archive = Archive::open(&archive_dir)?;
             ingest::run(&mut backends, &archive, args).await
