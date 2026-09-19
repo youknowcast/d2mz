@@ -11,7 +11,6 @@ use opendal::Operator;
 use tokio::io::AsyncWriteExt;
 
 use crate::archive::Archive;
-use crate::uri::Uri;
 
 /// What an ingest produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,22 +23,25 @@ pub struct IngestOutcome {
     pub deduplicated: bool,
     /// Row id of the created entry.
     pub entry_id: i64,
+    /// Fully qualified URI of the object that was ingested.
+    pub source: String,
 }
 
 /// Copy an object from `operator` into the archive.
 pub async fn ingest(
     archive: &Archive,
     operator: &Operator,
-    uri: &Uri,
+    backend: &str,
     path: &str,
     name: &str,
 ) -> Result<IngestOutcome> {
+    let source = format!("mz://{backend}/{path}");
     let metadata = operator
         .stat(path)
         .await
-        .with_context(|| format!("stat {uri}"))?;
+        .with_context(|| format!("stat {source}"))?;
     if metadata.is_dir() {
-        anyhow::bail!("{uri} is a directory; ingest individual files");
+        anyhow::bail!("{source} is a directory; ingest individual files");
     }
 
     let store = archive.root().join("store");
@@ -49,7 +51,7 @@ pub async fn ingest(
     let reader = operator
         .reader(path)
         .await
-        .with_context(|| format!("open {uri}"))?;
+        .with_context(|| format!("open {source}"))?;
     let mut stream = reader.into_stream(..).await?;
 
     let mut hasher = Hasher::new();
@@ -59,7 +61,7 @@ pub async fn ingest(
             .await
             .with_context(|| format!("creating {}", tmp_path.display()))?;
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.with_context(|| format!("reading {uri}"))?;
+            let chunk = chunk.with_context(|| format!("reading {source}"))?;
             let bytes = chunk.to_bytes();
             hasher.update(&bytes);
             size += bytes.len() as u64;
@@ -88,7 +90,6 @@ pub async fn ingest(
 
     let now = unix_now();
     archive.index().insert_blob(&hash, size, now)?;
-    let source = uri.to_string();
     let entry_id = archive
         .index()
         .insert_entry(&hash, name, path, &source, size, now)?;
@@ -98,6 +99,7 @@ pub async fn ingest(
         size,
         deduplicated: existed,
         entry_id,
+        source,
     })
 }
 

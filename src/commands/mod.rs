@@ -1,12 +1,16 @@
 //! Subcommand implementations.
 
+pub mod archive;
 pub mod cat;
+pub mod export;
 pub mod find;
+pub mod ingest;
 pub mod ls;
 pub mod stat;
 
 use anyhow::Result;
 
+use crate::archive::Archive;
 use crate::backend::Backends;
 use crate::cli::{Cli, Command};
 use crate::config::Config;
@@ -17,6 +21,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Some(path) => Config::load_from(path)?,
         None => Config::load()?,
     };
+    let archive_dir = config.archive_dir.clone();
     let mut backends = Backends::new(config);
 
     match cli.command {
@@ -24,5 +29,17 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Cat(args) => cat::run(&mut backends, args).await,
         Command::Stat(args) => stat::run(&mut backends, args).await,
         Command::Find(args) => find::run(&mut backends, args).await,
+        Command::Ingest(args) => {
+            let archive = Archive::open(&archive_dir)?;
+            ingest::run(&mut backends, &archive, args).await
+        }
+        Command::Archive(args) => {
+            let archive = Archive::open(&archive_dir)?;
+            archive::run(&archive, args)
+        }
+        Command::Export(args) => {
+            let archive = Archive::open(&archive_dir)?;
+            export::run(&mut backends, &archive, args).await
+        }
     }
 }
