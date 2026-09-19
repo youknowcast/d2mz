@@ -118,10 +118,25 @@ secret_access_key = "..."
 name = "web"
 scheme = "http"
 endpoint = "https://raw.githubusercontent.com"
+
+# Any SSH host on the LAN or over Tailscale, via its SFTP subsystem.
+[[backend]]
+name = "mac"
+scheme = "sftp"
+endpoint = "ssh://mac.local:22"       # or the Tailscale name / IP
+user = "ada"
+key = "~/.ssh/id_ed25519"             # key-based auth only
+known_hosts_strategy = "accept"
+root = "/Users/ada"
 ```
 
 For non-AWS S3 endpoints, d2mz enables path-style addressing and disables
 config/credential file lookup by default; both can be overridden explicitly.
+
+For SFTP, `endpoint` accepts `[user@]host[:port]` or
+`ssh://[user@]host[:port]`, `key` is a private key path (passwords are not
+supported), and `known_hosts_strategy` is `strict` (default), `accept` or
+`add`. This works the same over Tailscale since it is ordinary SSH.
 
 Every key other than `name` and `scheme` is passed through to the matching
 [OpenDAL](https://opendal.apache.org/) service, so any supported service can
@@ -132,10 +147,12 @@ be configured the same way.
 ```sh
 cargo test                                   # unit + CLI tests (no external deps)
 D2MZ_RUSTFS_BIN=... D2MZ_RUSTFS_CLI=... \
-  cargo test --features test-support         # + real S3 tests
+  cargo test --features test-support         # + real S3 and SFTP tests
 ```
 
-See [`docs/testing-s3.md`](docs/testing-s3.md) for the RustFS setup.
+The SFTP tests use the system `sshd` and are skipped when it is missing
+(override with `D2MZ_SSHD_BIN`). See
+[`docs/testing-s3.md`](docs/testing-s3.md) for the RustFS setup.
 
 ## Design
 

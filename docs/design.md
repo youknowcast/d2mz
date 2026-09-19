@@ -113,6 +113,25 @@ paths are global* — and makes search latency independent of remote backends.
 - **M4** (done) tags and search (SQLite FTS5).
 - **M5** (done) static musl build, shell completions, man page.
 
+## Backends
+
+Any OpenDAL service can be added from configuration alone; no d2mz code
+changes are needed. Currently compiled in:
+
+| scheme  | use                                            |
+| ------- | ---------------------------------------------- |
+| `fs`    | local filesystems                              |
+| `s3`    | AWS S3, RustFS, MinIO, R2, ...                 |
+| `sftp`  | any SSH host (LAN or Tailscale), key auth only |
+| `http`  | read-only HTTP(S) objects                      |
+
+SFTP needs `endpoint`, `user`, `key` (a private key path; passwords are not
+supported) and optionally `known_hosts_strategy` and `root`. It is verified
+against a real `sshd` in `tests/sftp.rs`.
+
+For non-AWS S3 endpoints d2mz defaults to path-style addressing and disables
+config/credential file lookup; both are overridable.
+
 ## Static builds
 
 A musl C compiler is unavoidable: `libsqlite3-sys` bundles SQLite and ring

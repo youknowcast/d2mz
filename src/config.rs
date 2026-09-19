@@ -193,6 +193,29 @@ mod tests {
     }
 
     #[test]
+    fn parses_sftp_backend() {
+        let text = r#"
+            [[backend]]
+            name = "mac"
+            scheme = "sftp"
+            endpoint = "ssh://mac.local:22"
+            user = "ada"
+            key = "~/.ssh/id_ed25519"
+            known_hosts_strategy = "accept"
+            root = "/Users/ada"
+        "#;
+        let config: Config = toml::from_str(text).unwrap();
+        let mac = config.backend("mac").unwrap();
+        assert_eq!(mac.scheme, "sftp");
+        let opts = mac.opendal_options();
+        assert_eq!(opts.get("endpoint").unwrap(), "ssh://mac.local:22");
+        assert_eq!(opts.get("user").unwrap(), "ada");
+        assert_eq!(opts.get("key").unwrap(), "~/.ssh/id_ed25519");
+        assert_eq!(opts.get("known_hosts_strategy").unwrap(), "accept");
+        assert_eq!(opts.get("root").unwrap(), "/Users/ada");
+    }
+
+    #[test]
     fn load_from_missing_file_uses_defaults() {
         let config = Config::load_from(Path::new("/nonexistent/d2mz.toml")).unwrap();
         assert!(config.backend(LOCAL_BACKEND).is_some());
