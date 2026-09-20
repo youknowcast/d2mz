@@ -449,7 +449,7 @@ dependencies = [
 
 [[package]]
 name = "d2mz"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -474,7 +474,7 @@ dependencies = [
 
 [[package]]
 name = "d2mz-archive"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1421,7 +1421,7 @@ dependencies = [
 
 [[package]]
 name = "mz"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "dirs",
