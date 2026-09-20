@@ -60,9 +60,7 @@ fn list(archive: &Archive, args: TagListArgs) -> Result<()> {
     if let Some(tag) = &args.tag {
         let entries = archive.index().entries_with_tag(tag)?;
         let records: Vec<EntryRecord> = entries.iter().map(EntryRecord::from).collect();
-        return print_records(&records, args.long, args.json, |record| {
-            record.source.clone()
-        });
+        return print_records(&records, args.long, args.json, |record| record.line());
     }
 
     let tags = archive.index().tags()?;

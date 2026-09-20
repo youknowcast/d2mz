@@ -10,10 +10,12 @@ use crate::output::human_size;
 pub struct EntryRecord {
     pub id: i64,
     pub hash: String,
+    pub backend: String,
     pub name: String,
     pub path: String,
     pub source: String,
     pub size: u64,
+    pub state: String,
 }
 
 impl From<&Entry> for EntryRecord {
@@ -21,15 +23,35 @@ impl From<&Entry> for EntryRecord {
         EntryRecord {
             id: entry.id,
             hash: entry.blob.clone(),
+            backend: backend_of(&entry.source),
             name: entry.name.clone(),
             path: entry.path.clone(),
             source: entry.source.clone(),
             size: entry.size,
+            state: entry.state.as_str().to_string(),
         }
     }
 }
 
 impl EntryRecord {
+    /// A single line for `search` / `archive`: state marker, backend, path,
+    /// size and hash prefix.
+    pub fn line(&self) -> String {
+        let short = self.hash.get(0..8).unwrap_or(&self.hash);
+        let marker = match self.state.as_str() {
+            "missing" => "!",
+            "deleted" => "x",
+            _ => " ",
+        };
+        format!(
+            "{marker}{:<8} {size:>8}  {:<8} {}",
+            self.backend,
+            short,
+            self.path,
+            size = human_size(self.size)
+        )
+    }
+
     /// A single `ls -l`-style line.
     pub fn long(&self) -> String {
         let short = self.hash.get(0..8).unwrap_or(&self.hash);
@@ -39,4 +61,13 @@ impl EntryRecord {
             size = human_size(self.size)
         )
     }
+}
+
+/// Extract the backend name from an `mz://<backend>/...` source URI.
+fn backend_of(source: &str) -> String {
+    source
+        .strip_prefix("mz://")
+        .and_then(|rest| rest.split('/').next())
+        .unwrap_or("")
+        .to_string()
 }

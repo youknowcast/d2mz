@@ -22,6 +22,13 @@ pub struct Config {
     #[serde(default = "default_archive_dir", deserialize_with = "de_pathbuf")]
     pub archive_dir: PathBuf,
 
+    /// The single shared "main" database, e.g. `mz://rfs/d2mz/main.db`.
+    ///
+    /// There is exactly one main database; it is the source of truth that
+    /// `sync` merges with. Leaving it unset keeps d2mz purely local.
+    #[serde(default)]
+    pub main: Option<String>,
+
     /// Named backends, in declaration order.
     #[serde(default, rename = "backend")]
     pub backends: Vec<BackendConfig>,
@@ -54,6 +61,7 @@ impl Default for Config {
     fn default() -> Self {
         let mut config = Config {
             archive_dir: default_archive_dir(),
+            main: None,
             backends: Vec::new(),
         };
         config.ensure_local_backend();
@@ -190,6 +198,29 @@ mod tests {
         let opts = r2.opendal_options();
         assert_eq!(opts.get("bucket").unwrap(), "mybucket");
         assert_eq!(opts.get("endpoint").unwrap(), "https://example.invalid");
+    }
+
+    #[test]
+    fn parses_sftp_backend() {
+        let text = r#"
+            [[backend]]
+            name = "mac"
+            scheme = "sftp"
+            endpoint = "ssh://mac.local:22"
+            user = "ada"
+            key = "~/.ssh/id_ed25519"
+            known_hosts_strategy = "accept"
+            root = "/Users/ada"
+        "#;
+        let config: Config = toml::from_str(text).unwrap();
+        let mac = config.backend("mac").unwrap();
+        assert_eq!(mac.scheme, "sftp");
+        let opts = mac.opendal_options();
+        assert_eq!(opts.get("endpoint").unwrap(), "ssh://mac.local:22");
+        assert_eq!(opts.get("user").unwrap(), "ada");
+        assert_eq!(opts.get("key").unwrap(), "~/.ssh/id_ed25519");
+        assert_eq!(opts.get("known_hosts_strategy").unwrap(), "accept");
+        assert_eq!(opts.get("root").unwrap(), "/Users/ada");
     }
 
     #[test]

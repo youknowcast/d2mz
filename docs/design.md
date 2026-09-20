@@ -89,6 +89,26 @@ sorts by path. When the target is a file it is shown as a single entry.
   prefix to a blob and writes it back to any backend.
 - Tag targets resolve by entry id, exact path/name/source, a path suffix
   (`docs/report.txt`), or a path/source prefix.
+
+### Source presence
+
+A source may vanish and reappear, so entries carry an observed state rather
+than being deleted:
+
+```
+present --(scan finds nothing)--> missing --(scan finds it again)--> present
+   |
+   +--(forget)--> deleted  (tombstone; never scanned again)
+```
+
+`entry.state` records the observation, `entry.seen_at` when it was last
+switched, and `entry.mtime` the source's modification time so `scan` can tell
+an unchanged file from a changed one without downloading it. Blobs are never
+dropped when a source disappears, so a reappearing file re-registers for
+free. Physical removal is a separate concern (purge), not a side effect of
+scanning.
+
+
 - The index opens with WAL mode; SQLite stores sizes as `i64`, converted at
   the boundary.
 
@@ -100,6 +120,112 @@ sorts by path. When the target is a file it is shown as a single entry.
 - **M3** (done) archive schema, `ingest` / `export`, BLAKE3 dedup.
 - **M4** (done) tags and search (SQLite FTS5).
 - **M5** (done) static musl build, shell completions, man page.
+- **M6** (done) source presence + `scan` / `forget`.
+- **M7** (done) remote main database with a lease-based lock.
+- **M8** (done) `open` by kind with shared handlers, and cached thumbnails.
+
+## Backends
+
+Any OpenDAL service can be added from configuration alone; no d2mz code
+changes are needed. Currently compiled in:
+
+| scheme  | use                                            |
+| ------- | ---------------------------------------------- |
+| `fs`    | local filesystems                              |
+| `s3`    | AWS S3, RustFS, MinIO, R2, ...                 |
+| `sftp`  | any SSH host (LAN or Tailscale), key auth only |
+| `http`  | read-only HTTP(S) objects                      |
+
+SFTP needs `endpoint`, `user`, `key` (a private key path; passwords are not
+supported) and optionally `known_hosts_strategy` and `root`. It is verified
+against a real `sshd` in `tests/sftp.rs`.
+
+For non-AWS S3 endpoints d2mz defaults to path-style addressing and disables
+config/credential file lookup; both are overridable.
+
+## Main database and sync
+
+The archive is usable with no remote at all. When a shared catalogue is
+wanted, there is exactly **one** main database, declared once as
+`main = "mz://..."` in the config (`--remote` overrides it per invocation).
+It stores a portable JSON snapshot of the index, not a live SQLite file,
+because object stores cannot host a database that is written in place.
+
+`d2mz sync`:
+
+1. download the remote snapshot (read-only, before locking)
+2. acquire a lease-based lock next to it
+3. merge remote rows into the local index
+4. compute local rows the remote lacks or trails on, and push
+
+Merge rules:
+
+- **entries**: keyed by `source`, last-writer-wins on `updated_at`
+- **blobs**: union by hash
+- **tags / meta**: set union
+
+Every write stamps `entry.updated_at` and `entry.origin` (the node id), which
+is what makes last-writer-wins decidable.
+
+### One main database, enforced
+
+Because a single main database is the source of truth, two mistakes are
+worth guarding:
+
+- **Identity.** The snapshot carries a `main_id`, minted on `--init`. Each
+  node stores the id it first synced with (`node.main_id`) and refuses to
+  merge against a different one. Two catalogues can never be mixed by
+  accident.
+- **Overwrite.** `--init` on a non-empty main database fails unless
+  `--force` is given, so seeding cannot silently discard the catalogue.
+
+### The lease lock
+
+POSIX locks do not exist on S3, so exclusion is a lock object created
+atomically (`write_with(..).if_not_exists(true)`, i.e. `If-None-Match: *` on
+S3 and rename on a filesystem). Its body is
+`{owner, host, acquired_at, expires_at}`. A live lease rejects other writers;
+an expired one may be stolen, so a crashed caller cannot block the archive
+forever. `LockGuard::release` deletes the object only if this node still owns
+it.
+
+IDs are keyed by URI (`mz://<backend>/<path>`), so a shared main database
+assumes every node addresses the same source the same way — configure the
+same backend names on each machine.
+
+## Handlers and thumbnails
+
+### Opening by kind
+
+`open` classifies a path by extension into `text | image | video | audio |
+pdf | other`, then resolves a command:
+
+1. `--with` on the command line
+2. the index's `handler` table (extension-specific, then the kind's `*`)
+3. a built-in default: the pager for text, the OS opener otherwise
+
+Handlers live in `handler(kind, matcher, app, updated_at, origin)` and take
+part in sync, so a shared main database shares how files open. Directories are
+listed, executables are never run. Remote objects are copied to a temp file
+first; remote text goes straight to the pager.
+
+### Thumbnails
+
+Thumbnails are keyed by the source blob's BLAKE3 hash and stored at
+`thumb/ab/cd/<hash>.webp`, recorded in `thumb(blob_hash, width, height,
+format, size, created_at)`. Two properties follow from content addressing:
+
+- identical contents share one thumbnail;
+- a thumbnail is generated **once**, on first use, so browsing never costs
+  extra network reads.
+
+Generation is on by default at an ingest, because the bytes are already being
+streamed — the thumbnail costs no extra fetch. `--no-thumb` skips it for bulk
+imports, and `scan --thumb` backfills by reading the local blob store (no
+source is contacted). Images are decoded and resized in-process (`image`
+crate, pure Rust); video frames come from `ffmpeg` when present, and are
+otherwise skipped. Terminal rendering prefers `chafa`, `viu`, `tiv` or
+`img2txt`, falling back to reporting the path.
 
 ## Static builds
 

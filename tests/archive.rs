@@ -164,6 +164,123 @@ fn search_finds_by_tag_and_name() {
     assert_eq!(parsed.len(), 1);
 }
 
+#[test]
+fn search_is_cross_backend_and_needs_no_uri() {
+    // Two separate source trees stand in for two backends. Search never
+    // touches them again; it only reads the local index.
+    let archive = tempfile::tempdir().unwrap();
+    let first = tempfile::tempdir().unwrap();
+    let second = tempfile::tempdir().unwrap();
+    fs::write(first.path().join("alpha-report.txt"), "a\n").unwrap();
+    fs::write(second.path().join("beta-report.txt"), "b\n").unwrap();
+
+    run(d2mz(archive.path())
+        .args(["ingest"])
+        .arg(first.path().join("alpha-report.txt")));
+    run(d2mz(archive.path())
+        .args(["ingest"])
+        .arg(second.path().join("beta-report.txt")));
+
+    let listing = stdout(&run(d2mz(archive.path()).args(["search", "report"])));
+    assert!(listing.contains("alpha-report.txt"), "{listing}");
+    assert!(listing.contains("beta-report.txt"), "{listing}");
+
+    // The default output names the backend for each hit; a leading space is
+    // the "present" state marker.
+    let line = listing.lines().next().unwrap();
+    assert!(line.trim_start().starts_with("local"), "{line}");
+
+    // JSON exposes the backend too.
+    let json = stdout(&run(
+        d2mz(archive.path()).args(["search", "report", "--json"])
+    ));
+    let records: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+    assert!(records.iter().all(|record| record["backend"] == "local"));
+}
+
+#[test]
+fn scan_tracks_missing_and_reappearing_sources() {
+    let archive = tempfile::tempdir().unwrap();
+    let src = tempfile::tempdir().unwrap();
+    let file = src.path().join("note.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    run(d2mz(archive.path()).args(["ingest"]).arg(&file));
+    run(d2mz(archive.path()).args(["scan"]));
+
+    let present = entries(&archive);
+    assert_eq!(present[0]["state"], "present");
+
+    fs::remove_file(&file).unwrap();
+    run(d2mz(archive.path()).args(["scan"]));
+    let missing = entries(&archive);
+    assert_eq!(missing[0]["state"], "missing");
+
+    // The blob survives a disappearance, so a reappearing file is cheap.
+    fs::write(&file, "hello\n").unwrap();
+    run(d2mz(archive.path()).args(["scan"]));
+    let back = entries(&archive);
+    assert_eq!(back[0]["state"], "present");
+    assert_eq!(missing[0]["hash"], back[0]["hash"]);
+}
+
+#[test]
+fn scan_detects_changed_contents() {
+    let archive = tempfile::tempdir().unwrap();
+    let src = tempfile::tempdir().unwrap();
+    let file = src.path().join("note.txt");
+    fs::write(&file, "v1\n").unwrap();
+    run(d2mz(archive.path()).args(["ingest"]).arg(&file));
+    let before = entries(&archive)[0]["hash"].as_str().unwrap().to_string();
+
+    fs::write(&file, "v2 changed\n").unwrap();
+    run(d2mz(archive.path()).args(["scan"]));
+    let after = entries(&archive)[0]["hash"].as_str().unwrap().to_string();
+
+    assert_ne!(before, after);
+    assert_eq!(count_files(&archive.path().join("data").join("store")), 2);
+}
+
+#[test]
+fn forget_retires_an_entry() {
+    let archive = tempfile::tempdir().unwrap();
+    let src = tempfile::tempdir().unwrap();
+    let file = src.path().join("note.txt");
+    fs::write(&file, "hello\n").unwrap();
+    run(d2mz(archive.path()).args(["ingest"]).arg(&file));
+
+    run(d2mz(archive.path()).args(["forget", "--id", "note.txt"]));
+    let retired = stdout(&run(
+        d2mz(archive.path()).args(["archive", "--state", "deleted", "--json"])
+    ));
+    let records: Vec<serde_json::Value> = serde_json::from_str(&retired).unwrap();
+    assert_eq!(records.len(), 1);
+
+    // A later scan must not resurrect a retired entry.
+    run(d2mz(archive.path()).args(["scan"]));
+    let after = entries(&archive);
+    assert_eq!(after[0]["state"], "deleted");
+}
+
+#[test]
+fn reingesting_same_source_does_not_duplicate() {
+    let archive = tempfile::tempdir().unwrap();
+    let src = tempfile::tempdir().unwrap();
+    let file = src.path().join("note.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    run(d2mz(archive.path()).args(["ingest"]).arg(&file));
+    run(d2mz(archive.path()).args(["ingest"]).arg(&file));
+
+    assert_eq!(entries(&archive).len(), 1);
+}
+
+/// All entries as JSON values.
+fn entries(archive: &TempDir) -> Vec<serde_json::Value> {
+    let json = stdout(&run(d2mz(archive.path()).args(["archive", "--json"])));
+    serde_json::from_str(&json).unwrap()
+}
+
 fn count_files(dir: &Path) -> usize {
     let mut count = 0;
     let mut stack = vec![dir.to_path_buf()];

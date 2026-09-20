@@ -15,7 +15,8 @@ clap_mangen = "0.3.3"
 dirs = "6"
 futures = "0.3.34"
 globset = "0.4.20"
-opendal = { version = "0.59.2", default-features = false, features = ["services-fs", "services-s3", "auto-register-services", "executors-tokio", "http-transport-reqwest-rustls-no-provider", "layers-concurrent-limit", "layers-logging", "layers-retry", "layers-timeout", "services-http"] }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff"] }
+opendal = { version = "0.59.2", default-features = false, features = ["services-fs", "services-s3", "auto-register-services", "executors-tokio", "http-transport-reqwest-rustls-no-provider", "layers-concurrent-limit", "layers-logging", "layers-retry", "layers-timeout", "services-http", "services-sftp"] }
 opendal-http-transport-reqwest = { version = "0.59.2", default-features = false, features = ["rustls-no-provider"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }

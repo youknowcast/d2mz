@@ -11,9 +11,10 @@ use opendal::Operator;
 use tokio::io::AsyncWriteExt;
 
 use crate::archive::Archive;
+use crate::archive::thumb::{GeneratedThumb, ensure};
 
 /// What an ingest produced.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct IngestOutcome {
     /// BLAKE3 hash of the contents.
     pub hash: String,
@@ -25,15 +26,21 @@ pub struct IngestOutcome {
     pub entry_id: i64,
     /// Fully qualified URI of the object that was ingested.
     pub source: String,
+    /// A thumbnail, when one was generated or already cached.
+    pub thumb: Option<GeneratedThumb>,
 }
 
 /// Copy an object from `operator` into the archive.
+///
+/// When `thumbnails` is set, a thumbnail is generated while the bytes are
+/// already in hand, so browsing later never re-reads the source.
 pub async fn ingest(
     archive: &Archive,
     operator: &Operator,
     backend: &str,
     path: &str,
     name: &str,
+    thumbnails: bool,
 ) -> Result<IngestOutcome> {
     let source = format!("mz://{backend}/{path}");
     let metadata = operator
@@ -90,9 +97,31 @@ pub async fn ingest(
 
     let now = unix_now();
     archive.index().insert_blob(&hash, size, now)?;
-    let entry_id = archive
-        .index()
-        .insert_entry(&hash, name, path, &source, size, now)?;
+
+    // Re-ingesting the same source updates the existing entry instead of
+    // creating a duplicate row.
+    let mtime = metadata
+        .last_modified()
+        .map(|ts| ts.into_inner().as_second());
+    let entry_id = match archive.index().entry_by_source(&source)? {
+        Some(existing) => {
+            archive
+                .index()
+                .mark_present(existing.id, &hash, size, mtime, now)?;
+            existing.id
+        }
+        None => archive
+            .index()
+            .insert_entry(&hash, name, path, &source, size, now, mtime)?,
+    };
+
+    // Generate a thumbnail now, while the source read is already paid for.
+    let kind = crate::commands::open::kind_of(name);
+    let thumb = if thumbnails {
+        ensure(archive, &hash, kind).unwrap_or(None)
+    } else {
+        None
+    };
 
     Ok(IngestOutcome {
         hash,
@@ -100,6 +129,7 @@ pub async fn ingest(
         deduplicated: existed,
         entry_id,
         source,
+        thumb,
     })
 }
 
@@ -108,6 +138,28 @@ fn hash_counter() -> u64 {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     COUNTER.fetch_add(1, Ordering::Relaxed)
+}
+
+/// Whether the archive still holds the blob on disk.
+pub fn blob_is_current(archive: &Archive, hash: &str) -> Result<bool> {
+    Ok(archive.has_blob_on_disk(hash))
+}
+
+/// Re-ingest the object referenced by an existing entry.
+///
+/// Used by `scan` when an entry's mtime or size has changed.
+pub async fn ingest_from_entry(
+    archive: &Archive,
+    operator: &Operator,
+    entry: &crate::archive::db::Entry,
+    backend: &str,
+    thumbnails: bool,
+) -> Result<IngestOutcome> {
+    let path = entry
+        .source
+        .strip_prefix(&format!("mz://{backend}/"))
+        .unwrap_or(&entry.path);
+    ingest(archive, operator, backend, path, &entry.name, thumbnails).await
 }
 
 /// Seconds since the Unix epoch.

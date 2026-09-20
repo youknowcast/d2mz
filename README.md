@@ -60,11 +60,22 @@ contents are written once and shared between entries. `export` writes a blob
 back out to any backend. Tags and full-text search run on the same SQLite
 index.
 
+Registering is explicit and per-source; **searching is not**. `search` and
+`archive` never contact a backend — they query the local index, so they span
+every source you have ingested and need no URI:
+
 ```sh
-d2mz ingest -R ./photos                    # ingest a tree
+d2mz ingest -R ./photos                    # register a local tree
 d2mz ingest mz://rfs/backups --name '*.tar'
 
-d2mz archive -l                            # list archived entries
+d2mz scan                                   # re-check sources: present/missing
+d2mz scan mz://rfs/backups                  # only one source subtree
+d2mz archive --state missing -l             # what disappeared
+d2mz forget --id old-report.txt             # retire an entry (tombstone)
+
+d2mz search report                          # across all ingested entries
+d2mz search 'work OR holiday' -l            # name/path/source/tags only
+d2mz archive -l                             # list everything ingested
 d2mz archive --prefix photos/ --json
 
 d2mz tag add holiday --id photos/beach.jpg # by path, name or source URI
@@ -73,12 +84,104 @@ d2mz tag list holidays                      # entries carrying a tag
 d2mz tag list                               # all tags with counts
 d2mz tag rm work --id docs/report.txt
 
-d2mz search report                          # FTS5 over name/path/source/tags
-d2mz search 'work OR holiday' -l             # content is not indexed yet
-
 d2mz export 3f9a1c2b ./restored.jpg        # hash prefix is enough
 d2mz export 3f9a1c2b mz://rfs/restored.jpg
 ```
+
+### Opening files
+
+`open` picks an application by file kind (`--as` overrides detection) and
+runs it. Handlers are stored in the index and shared through `sync`, so every
+machine opens the same types the same way.
+
+```sh
+d2mz open ./notes.md                  # text -> $PAGER
+d2mz open ./photo.png                 # image/video -> handler or xdg-open
+d2mz open --with 'imv {}' ./a.jpg     # this once
+d2mz open --print ./a.jpg             # just the local path
+
+d2mz handler set image --app 'imv {}'
+d2mz handler set image --matcher .svg --app 'inkscape {}'
+d2mz handler list
+d2mz handler rm image --matcher .svg
+```
+
+Directories are listed, executables are never run. Remote objects are
+materialised into a temporary file; remote text is piped to the pager.
+
+### Thumbnails
+
+Media thumbnails are generated once, keyed by the blob's BLAKE3 hash, and
+cached under `archive_dir/thumb/` — identical contents share one thumbnail,
+and **no network access happens after the first read**.
+
+`ingest` generates them by default while the bytes are already in hand, so
+there is no extra fetch. Pass `--no-thumb` to skip, and use `scan --thumb`
+later to backfill.
+
+```sh
+d2mz ingest -R ./photos                 # thumbnails made as part of ingest
+d2mz ingest --no-thumb ./big-dump       # skip for a bulk import
+d2mz scan --thumb                       # backfill existing media
+
+d2mz thumb ./photo.png                  # render in the terminal (if a viewer exists)
+d2mz thumb -l ./photo.png               # also print dimensions
+d2mz thumb --print ./photo.png          # just the cached path
+```
+
+Images are resized in-process (`image` crate). Videos use `ffmpeg` for the
+first frame when it is installed; otherwise they are skipped. Terminal
+rendering uses `chafa`, `viu`, `tiv` or `img2txt` if one is present, and
+otherwise just reports the path.
+
+### Source presence
+
+Sources come and go. `scan` re-checks every registered source and records
+whether it is still there:
+
+- `present` — confirmed by the latest scan
+- `missing` — absent at the latest scan; may reappear
+- `deleted` — retired with `forget`, never scanned again
+
+Missing entries keep their blob, so a file that disappears and comes back
+costs nothing to re-register. `scan` also detects changed contents (by mtime
+and size) and stores the new version alongside the old one. Default listings
+mark state: a leading `!` means missing, `x` means deleted.
+
+### Remote main database (optional)
+
+d2mz works entirely offline: without a remote it is just the local index.
+There is exactly **one** main database shared by every machine; declare it
+once in the config and `sync` needs no arguments.
+
+```toml
+# ~/.config/d2mz/config.toml
+main = "mz://rfs/d2mz/main.db"     # or mz://mac/Users/ada/d2mz/main.db
+```
+
+```sh
+# On the first machine: create the main database from the local index.
+d2mz sync --init
+
+# On every machine: pull remote changes and push local ones.
+d2mz sync
+```
+
+`--remote` still overrides the configured `main`. Merging is last-writer-wins
+per entry (`updated_at`), with tags and metadata unioned. Writers are
+serialised by a lease-based lock next to the database (`main.lock.json`); a
+crashed holder is recovered once its lease expires.
+
+Safety rails, because there is only one main database:
+
+- The main database carries an id. A node remembers the id it first synced
+  with, so pointing at a **different** main database is an error rather than
+  a silent merge of two catalogues.
+- `--init` refuses to overwrite an existing main database; pass `--force` to
+  say so explicitly.
+
+Default listings show the backend, size, hash prefix and path, so you can
+tell at a glance which source a hit came from.
 
 `find` accepts a comma-separated glob (`--name '*.log,*.txt'`) and sizes
 such as `10K`, `5M`, `2G`.
@@ -112,10 +215,25 @@ secret_access_key = "..."
 name = "web"
 scheme = "http"
 endpoint = "https://raw.githubusercontent.com"
+
+# Any SSH host on the LAN or over Tailscale, via its SFTP subsystem.
+[[backend]]
+name = "mac"
+scheme = "sftp"
+endpoint = "ssh://mac.local:22"       # or the Tailscale name / IP
+user = "ada"
+key = "~/.ssh/id_ed25519"             # key-based auth only
+known_hosts_strategy = "accept"
+root = "/Users/ada"
 ```
 
 For non-AWS S3 endpoints, d2mz enables path-style addressing and disables
 config/credential file lookup by default; both can be overridden explicitly.
+
+For SFTP, `endpoint` accepts `[user@]host[:port]` or
+`ssh://[user@]host[:port]`, `key` is a private key path (passwords are not
+supported), and `known_hosts_strategy` is `strict` (default), `accept` or
+`add`. This works the same over Tailscale since it is ordinary SSH.
 
 Every key other than `name` and `scheme` is passed through to the matching
 [OpenDAL](https://opendal.apache.org/) service, so any supported service can
@@ -126,10 +244,12 @@ be configured the same way.
 ```sh
 cargo test                                   # unit + CLI tests (no external deps)
 D2MZ_RUSTFS_BIN=... D2MZ_RUSTFS_CLI=... \
-  cargo test --features test-support         # + real S3 tests
+  cargo test --features test-support         # + real S3 and SFTP tests
 ```
 
-See [`docs/testing-s3.md`](docs/testing-s3.md) for the RustFS setup.
+The SFTP tests use the system `sshd` and are skipped when it is missing
+(override with `D2MZ_SSHD_BIN`). See
+[`docs/testing-s3.md`](docs/testing-s3.md) for the RustFS setup.
 
 ## Design
 

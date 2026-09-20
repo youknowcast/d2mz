@@ -4,12 +4,18 @@ pub mod archive;
 pub mod cat;
 pub mod export;
 pub mod find;
+pub mod forget;
 pub mod generate;
+pub mod handler;
 pub mod ingest;
 pub mod ls;
+pub mod open;
+pub mod scan;
 pub mod search;
 pub mod stat;
+pub mod sync;
 pub mod tag;
+pub mod thumb;
 
 use anyhow::Result;
 
@@ -25,7 +31,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         None => Config::load()?,
     };
     let archive_dir = config.archive_dir.clone();
-    let mut backends = Backends::new(config);
+    let mut backends = Backends::new(config.clone());
 
     match cli.command {
         Command::Ls(args) => ls::run(&mut backends, args).await,
@@ -35,6 +41,30 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Ingest(args) => {
             let archive = Archive::open(&archive_dir)?;
             ingest::run(&mut backends, &archive, args).await
+        }
+        Command::Scan(args) => {
+            let archive = Archive::open(&archive_dir)?;
+            scan::run(&mut backends, &archive, args).await
+        }
+        Command::Forget(args) => {
+            let archive = Archive::open(&archive_dir)?;
+            forget::run(&archive, args)
+        }
+        Command::Sync(args) => {
+            let archive = Archive::open(&archive_dir)?;
+            sync::run(&mut backends, &config, &archive, args).await
+        }
+        Command::Handler(args) => {
+            let archive = Archive::open(&archive_dir)?;
+            handler::run(&archive, args)
+        }
+        Command::Open(args) => {
+            let archive = Archive::open(&archive_dir)?;
+            open::run(&mut backends, &archive, args).await
+        }
+        Command::Thumb(args) => {
+            let archive = Archive::open(&archive_dir)?;
+            thumb::run(&mut backends, &archive, args).await
         }
         Command::Archive(args) => {
             let archive = Archive::open(&archive_dir)?;

@@ -12,6 +12,9 @@ use anyhow::{Context, Result};
 pub mod db;
 pub mod ingest;
 pub mod list;
+pub mod lock;
+pub mod sync;
+pub mod thumb;
 
 use db::Index;
 
@@ -49,6 +52,11 @@ impl Archive {
     /// Read a blob by hash.
     pub fn read_blob(&self, hash: &str) -> Result<Vec<u8>> {
         fs::read(self.blob_path(hash)).with_context(|| format!("reading blob {hash}"))
+    }
+
+    /// Whether a blob is both indexed and present on disk.
+    pub fn has_blob_on_disk(&self, hash: &str) -> bool {
+        self.blob_path(hash).exists()
     }
 }
 

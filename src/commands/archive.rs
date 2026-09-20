@@ -1,14 +1,17 @@
 use anyhow::Result;
 
 use crate::archive::Archive;
+use crate::archive::db::EntryState;
 use crate::archive::list::EntryRecord;
-use crate::cli::ArchiveArgs;
+use crate::cli::{ArchiveArgs, StateFilter};
 use crate::output::human_size;
 
 pub fn run(archive: &Archive, args: ArchiveArgs) -> Result<()> {
-    let entries = match &args.prefix {
-        Some(prefix) => archive.index().entries_under(prefix)?,
-        None => archive.index().entries()?,
+    let state = args.state.map(to_state);
+    let entries = match (state, &args.prefix) {
+        (Some(state), _) => archive.index().entries_in_state(state)?,
+        (None, Some(prefix)) => archive.index().entries_under(prefix)?,
+        (None, None) => archive.index().entries()?,
     };
     let records: Vec<EntryRecord> = entries.iter().map(EntryRecord::from).collect();
 
@@ -20,10 +23,18 @@ pub fn run(archive: &Archive, args: ArchiveArgs) -> Result<()> {
         }
     } else {
         for record in &records {
-            println!("{}", record.source);
+            println!("{}", record.line());
         }
     }
     Ok(())
+}
+
+fn to_state(filter: StateFilter) -> EntryState {
+    match filter {
+        StateFilter::Present => EntryState::Present,
+        StateFilter::Missing => EntryState::Missing,
+        StateFilter::Deleted => EntryState::Deleted,
+    }
 }
 
 /// Summary line printed by `ingest` and `archive` when requested.

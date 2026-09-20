@@ -23,7 +23,15 @@ pub async fn run(backends: &mut Backends, archive: &Archive, args: IngestArgs) -
             anyhow::bail!("no ingestable objects found at {uri}");
         }
         for (path, name) in targets {
-            let outcome = ingest(archive, &operator, uri.backend(), &path, &name).await?;
+            let outcome = ingest(
+                archive,
+                &operator,
+                uri.backend(),
+                &path,
+                &name,
+                !args.no_thumb,
+            )
+            .await?;
             let short = &outcome.hash[..12.min(outcome.hash.len())];
             if outcome.deduplicated {
                 eprintln!(

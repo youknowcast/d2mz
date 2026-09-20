@@ -29,6 +29,18 @@ pub enum Command {
     Find(FindArgs),
     /// Copy an object into the local archive.
     Ingest(IngestArgs),
+    /// Re-check registered entries and update their presence state.
+    Scan(ScanArgs),
+    /// Retire entries so they are no longer tracked (a tombstone).
+    Forget(ForgetArgs),
+    /// Merge this index with a remote main database.
+    Sync(SyncArgs),
+    /// Open an object with an application chosen by kind.
+    Open(OpenArgs),
+    /// Manage application handlers used by `open`.
+    Handler(HandlerArgs),
+    /// Show or locate the cached thumbnail for a media object.
+    Thumb(ThumbArgs),
     /// List archived entries.
     Archive(ArchiveArgs),
     /// Write an archived blob back out to a URI.
@@ -162,11 +174,153 @@ pub struct IngestArgs {
     #[arg(short = 'R', long)]
     pub recursive: bool,
 
+    /// Skip thumbnail generation for media objects.
+    #[arg(long)]
+    pub no_thumb: bool,
+
     /// Show a long listing.
     #[arg(short, long)]
     pub long: bool,
 
     /// Emit the results as JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// Arguments for `d2mz scan`.
+#[derive(Debug, Args)]
+pub struct ScanArgs {
+    /// Only re-check entries whose source URI starts with these prefixes.
+    #[arg(value_name = "PREFIX")]
+    pub prefixes: Vec<String>,
+
+    /// Generate thumbnails for media that does not have one yet.
+    #[arg(long)]
+    pub thumb: bool,
+
+    /// Emit the results as JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// Arguments for `d2mz forget`.
+#[derive(Debug, Args)]
+pub struct ForgetArgs {
+    /// Target archived entry: an entry id, path, name or source URI.
+    #[arg(long = "id", value_name = "TARGET")]
+    pub targets: Vec<String>,
+
+    /// Apply to every entry whose path or source starts with this prefix.
+    #[arg(long, value_name = "PREFIX")]
+    pub prefix: Option<String>,
+
+    /// Emit the results as JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// Arguments for `d2mz sync`.
+#[derive(Debug, Args)]
+pub struct SyncArgs {
+    /// Remote main database; overrides the `main` set in the config.
+    #[arg(long)]
+    pub remote: Option<String>,
+
+    /// Seed the remote from this node, then exit.
+    #[arg(long)]
+    pub init: bool,
+
+    /// Allow `--init` to overwrite an existing main database.
+    #[arg(long)]
+    pub force: bool,
+
+    /// Emit the result as JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// Arguments for `d2mz open`.
+#[derive(Debug, Args)]
+pub struct OpenArgs {
+    /// Target URI.
+    pub uri: String,
+
+    /// Run this command instead of the resolved handler (`{}` is the path).
+    #[arg(short = 'w', long)]
+    pub with: Option<String>,
+
+    /// Treat the object as this kind instead of detecting it.
+    #[arg(long = "as", value_name = "KIND")]
+    pub as_kind: Option<String>,
+
+    /// Print the resolved path instead of opening anything.
+    #[arg(short, long)]
+    pub print: bool,
+}
+
+/// Arguments for `d2mz thumb`.
+#[derive(Debug, Args)]
+pub struct ThumbArgs {
+    /// Target URI (must already be ingested so it has a content hash).
+    pub uri: String,
+
+    /// Print the thumbnail path instead of displaying it.
+    #[arg(short, long)]
+    pub print: bool,
+
+    /// Also print the dimensions and format.
+    #[arg(short, long)]
+    pub long: bool,
+}
+
+/// Arguments for `d2mz handler`.
+#[derive(Debug, Args)]
+pub struct HandlerArgs {
+    #[command(subcommand)]
+    pub command: HandlerCommand,
+}
+
+/// Handler subcommands.
+#[derive(Debug, Subcommand)]
+pub enum HandlerCommand {
+    /// Register or update a handler.
+    Set(HandlerSetArgs),
+    /// Remove a handler.
+    Rm(HandlerRemoveArgs),
+    /// List handlers.
+    List(HandlerListArgs),
+}
+
+/// Arguments for `d2mz handler set`.
+#[derive(Debug, Args)]
+pub struct HandlerSetArgs {
+    /// Kind to handle, e.g. `image` or `video`.
+    pub kind: String,
+
+    /// Command to run; `{}` is replaced by the path.
+    #[arg(long, value_name = "COMMAND")]
+    pub app: String,
+
+    /// Extension this applies to (default `*`, the whole kind).
+    #[arg(long, default_value = "*")]
+    pub matcher: String,
+}
+
+/// Arguments for `d2mz handler rm`.
+#[derive(Debug, Args)]
+pub struct HandlerRemoveArgs {
+    /// Kind to remove from.
+    pub kind: String,
+
+    /// Extension to remove (default `*`).
+    #[arg(long, default_value = "*")]
+    pub matcher: String,
+}
+
+/// Arguments for `d2mz handler list`.
+#[derive(Debug, Args)]
+pub struct HandlerListArgs {
+    /// Emit the listing as JSON.
     #[arg(long)]
     pub json: bool,
 }
@@ -178,6 +332,10 @@ pub struct ArchiveArgs {
     #[arg(long)]
     pub prefix: Option<String>,
 
+    /// Show only entries in this state.
+    #[arg(long, value_enum)]
+    pub state: Option<StateFilter>,
+
     /// Show a long listing.
     #[arg(short, long)]
     pub long: bool,
@@ -185,6 +343,17 @@ pub struct ArchiveArgs {
     /// Emit the listing as JSON.
     #[arg(long)]
     pub json: bool,
+}
+
+/// Presence filter for `archive`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum StateFilter {
+    /// Sources confirmed present.
+    Present,
+    /// Sources absent at the last scan.
+    Missing,
+    /// Entries explicitly retired with `forget`.
+    Deleted,
 }
 
 /// Arguments for `d2mz export`.
