@@ -26,6 +26,13 @@ pub fn run(archive: &Archive, args: SearchArgs) -> Result<()> {
             "no matches for {:?} (searches ingested entries only)",
             args.query
         );
+    } else if !args.json && records.len() > 1 {
+        let bytes: u64 = records.iter().map(|record| record.size).sum();
+        eprintln!(
+            "total: {} match(es), {}",
+            records.len(),
+            crate::output::human_size(bytes)
+        );
     }
     Ok(())
 }

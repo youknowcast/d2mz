@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use opendal::{Entry, Operator};
 
-use crate::output::EntryView;
+use crate::output::{EntryView, human_size};
 use crate::uri::Uri;
 
 /// Render a list of entry views in the requested format.
@@ -12,12 +12,30 @@ pub fn print_views(views: &[EntryView], long: bool, json: bool) -> Result<()> {
         for view in views {
             println!("{}", view.long());
         }
+        print_total(views);
     } else {
         for view in views {
             println!("{}", view.plain());
         }
     }
     Ok(())
+}
+
+/// Print a `total: N entries, SIZE` trailer for long listings.
+///
+/// Only shown when there is more than one entry; a single result is its own
+/// summary.
+fn print_total(views: &[EntryView]) {
+    if views.len() < 2 {
+        return;
+    }
+    let bytes: u64 = views.iter().filter_map(|view| view.size).sum();
+    let dirs = views.iter().filter(|view| view.kind == "dir").count();
+    let files = views.len() - dirs;
+    eprintln!(
+        "total: {files} file(s), {dirs} dir(s), {}",
+        human_size(bytes)
+    );
 }
 
 /// The prefix form of a target, so directory-like paths list their children.

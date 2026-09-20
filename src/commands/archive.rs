@@ -33,6 +33,10 @@ pub fn run(archive: &Archive, args: ArchiveArgs) -> Result<()> {
             println!("{}", record.line());
         }
     }
+    if !args.json && records.len() > 1 {
+        let bytes: u64 = records.iter().map(|record| record.size).sum();
+        eprintln!("total: {} entries, {}", records.len(), human_size(bytes));
+    }
     Ok(())
 }
 
