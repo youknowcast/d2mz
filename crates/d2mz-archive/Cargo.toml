@@ -1,0 +1,22 @@
+[package]
+name = "d2mz-archive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The d2mz content-addressed archive: BLAKE3 blob store and SQLite index"
+
+[dependencies]
+anyhow = "1"
+blake3 = "1.8.7"
+futures = "0.3.34"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff"] }
+opendal = { version = "0.59.2", default-features = false }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+unicode-width = "0.2.2"
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["fs", "io-util", "rt", "macros"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
