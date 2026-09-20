@@ -1,13 +1,22 @@
 use anyhow::{Result, bail};
 
-use crate::cli::SearchArgs;
+use crate::backend::Backends;
+use crate::cli::{InteractiveArgs, SearchArgs};
+use crate::interactive::{self, Action, Candidate};
 use d2mz_archive::Archive;
 use d2mz_archive::db::Entry;
 use d2mz_archive::list::EntryRecord;
 
-pub fn run(archive: &Archive, args: SearchArgs) -> Result<()> {
+pub async fn run(backends: &mut Backends, archive: &Archive, args: SearchArgs) -> Result<()> {
     let entries = resolve(archive, &args.query)?;
     let records: Vec<EntryRecord> = entries.iter().map(EntryRecord::from).collect();
+
+    // On a terminal, narrow interactively instead of dumping the list.
+    if interactive_enabled(&args.interactive, args.json)
+        && let Some((uri, action)) = pick(&records, &args.interactive)?
+    {
+        return finish(backends, archive, &uri, action).await;
+    }
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&records)?);
@@ -37,6 +46,40 @@ pub fn run(archive: &Archive, args: SearchArgs) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// Whether the interactive picker should run for this invocation.
+pub fn interactive_enabled(args: &InteractiveArgs, json: bool) -> bool {
+    !json && !args.plain() && interactive::available()
+}
+
+/// Build fzf candidates from archived records.
+pub fn candidates(records: &[EntryRecord]) -> Vec<Candidate> {
+    records
+        .iter()
+        .map(|record| Candidate::new(record.source.clone(), crate::output::entry_line(record)))
+        .collect()
+}
+
+/// Run the picker, returning the chosen URI and action.
+pub fn pick(records: &[EntryRecord], args: &InteractiveArgs) -> Result<Option<(String, Action)>> {
+    interactive::pick(&candidates(records), args.default_action())
+}
+
+/// Apply the chosen action.
+pub async fn finish(
+    backends: &mut Backends,
+    archive: &Archive,
+    uri: &str,
+    action: Action,
+) -> Result<()> {
+    match action {
+        Action::Print => {
+            println!("{uri}");
+            Ok(())
+        }
+        Action::Open => interactive::open_uri(backends, archive, uri).await,
+    }
 }
 
 /// Where a query should be answered from, decided by its shape.
