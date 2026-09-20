@@ -37,9 +37,21 @@ pub async fn run(backends: &mut Backends, archive: &Archive, args: ScanArgs) -> 
 
         let metadata = operator.stat(uri.path()).await;
         let (state, changed) = match metadata {
-            Err(_) => {
+            // Only a genuine "not found" means the source is gone. A
+            // transport or auth failure must not mark everything missing, so
+            // leave the recorded state untouched and report it.
+            Err(error) if error.kind() == opendal::ErrorKind::NotFound => {
                 archive.index().mark_missing(entry.id, unix_now())?;
                 ("missing", false)
+            }
+            Err(error) => {
+                records.push(ScanRecord {
+                    source: entry.source.clone(),
+                    state: "error",
+                    changed: false,
+                });
+                eprintln!("warning: could not check {}: {error}", entry.source);
+                continue;
             }
             Ok(metadata) if metadata.is_dir() => {
                 archive.index().mark_missing(entry.id, unix_now())?;
@@ -86,9 +98,10 @@ pub async fn run(backends: &mut Backends, archive: &Archive, args: ScanArgs) -> 
     } else {
         let present = records.iter().filter(|r| r.state == "present").count();
         let missing = records.iter().filter(|r| r.state == "missing").count();
+        let errors = records.iter().filter(|r| r.state == "error").count();
         let changed = records.iter().filter(|r| r.changed).count();
         eprintln!(
-            "scanned {}: {present} present, {missing} missing, {changed} changed",
+            "scanned {}: {present} present, {missing} missing, {changed} changed, {errors} unchecked",
             records.len()
         );
     }

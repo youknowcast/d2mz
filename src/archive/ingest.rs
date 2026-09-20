@@ -22,6 +22,8 @@ pub struct IngestOutcome {
     pub size: u64,
     /// Whether the blob was already present.
     pub deduplicated: bool,
+    /// Whether the source was unchanged and no bytes were read.
+    pub unchanged: bool,
     /// Row id of the created entry.
     pub entry_id: i64,
     /// Fully qualified URI of the object that was ingested.
@@ -34,6 +36,11 @@ pub struct IngestOutcome {
 ///
 /// When `thumbnails` is set, a thumbnail is generated while the bytes are
 /// already in hand, so browsing later never re-reads the source.
+///
+/// If the index already has an entry for this source whose size and mtime
+/// match the backend, and the blob is still on disk, no bytes are read at
+/// all: the call is a cheap no-op. This makes re-running `ingest` over a
+/// tree incremental without any extra flags.
 pub async fn ingest(
     archive: &Archive,
     operator: &Operator,
@@ -49,6 +56,39 @@ pub async fn ingest(
         .with_context(|| format!("stat {source}"))?;
     if metadata.is_dir() {
         anyhow::bail!("{source} is a directory; ingest individual files");
+    }
+
+    let mtime = metadata
+        .last_modified()
+        .map(|ts| ts.into_inner().as_second());
+
+    // Incremental short-circuit: identical size and mtime, with the blob
+    // still on disk, means there is nothing to read or hash.
+    if let Some(existing) = archive.index().entry_by_source(&source)?
+        && existing.mtime == mtime
+        && existing.size == metadata.content_length()
+        && blob_is_current(archive, &existing.blob)?
+        && existing.state == crate::archive::db::EntryState::Present
+    {
+        let thumb = if thumbnails {
+            ensure(
+                archive,
+                &existing.blob,
+                crate::commands::open::kind_of(name),
+            )
+            .unwrap_or(None)
+        } else {
+            None
+        };
+        return Ok(IngestOutcome {
+            hash: existing.blob,
+            size: existing.size,
+            deduplicated: true,
+            unchanged: true,
+            entry_id: existing.id,
+            source,
+            thumb,
+        });
     }
 
     let store = archive.root().join("store");
@@ -100,9 +140,6 @@ pub async fn ingest(
 
     // Re-ingesting the same source updates the existing entry instead of
     // creating a duplicate row.
-    let mtime = metadata
-        .last_modified()
-        .map(|ts| ts.into_inner().as_second());
     let entry_id = match archive.index().entry_by_source(&source)? {
         Some(existing) => {
             archive
@@ -127,6 +164,7 @@ pub async fn ingest(
         hash,
         size,
         deduplicated: existed,
+        unchanged: false,
         entry_id,
         source,
         thumb,
