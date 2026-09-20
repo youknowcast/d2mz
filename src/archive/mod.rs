@@ -60,6 +60,20 @@ impl Archive {
     pub fn has_blob_on_disk(&self, hash: &str) -> bool {
         self.blob_path(hash).exists()
     }
+
+    /// The archived blob for a source URI, if it is still on disk.
+    ///
+    /// This is what lets a vanished source still be read: the archive is the
+    /// reason to keep the bytes after all.
+    pub fn blob_for_source(&self, source: &str) -> Result<Option<(String, PathBuf)>> {
+        let Some(entry) = self.index.entry_by_source(source)? else {
+            return Ok(None);
+        };
+        if !self.has_blob_on_disk(&entry.blob) {
+            return Ok(None);
+        }
+        Ok(Some((entry.blob.clone(), self.blob_path(&entry.blob))))
+    }
 }
 
 /// Shard a hash into `aa/bb/<hash>` to avoid one enormous directory.

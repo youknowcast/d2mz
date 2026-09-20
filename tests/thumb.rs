@@ -198,24 +198,22 @@ fn non_media_falls_back_to_the_blob() {
 }
 
 #[test]
-fn thumb_requires_an_archived_source() {
+fn thumb_ingests_an_unregistered_source_on_use() {
     let archive = tempfile::tempdir().unwrap();
     let src = tempfile::tempdir().unwrap();
     let file = src.path().join("photo.png");
-    write_png(&file, 32, 32);
+    write_png(&file, 64, 64);
 
-    // Not ingested yet, so there is no blob hash to key on.
-    let output = d2mz(archive.path())
+    // No prior ingest: `thumb` registers it itself.
+    let printed = stdout(&run(d2mz(archive.path())
         .args(["thumb", "--print"])
-        .arg(&file)
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("not archived") || stderr.contains("ingest"),
-        "{stderr}"
-    );
+        .arg(&file)));
+    assert!(Path::new(printed.trim()).exists(), "{printed}");
+
+    // And the entry now exists in the index.
+    let listing = stdout(&run(d2mz(archive.path()).args(["archive", "--json"])));
+    let records: Vec<serde_json::Value> = serde_json::from_str(&listing).unwrap();
+    assert_eq!(records.len(), 1);
 }
 
 /// Keep the tempdir alive in helpers that take `&TempDir`.

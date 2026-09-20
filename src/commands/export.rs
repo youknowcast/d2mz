@@ -3,17 +3,19 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 
 use crate::archive::Archive;
+use crate::archive::db::EntryState;
 use crate::backend::Backends;
 use crate::cli::ExportArgs;
 use crate::uri::Uri;
 
 pub async fn run(backends: &mut Backends, archive: &Archive, args: ExportArgs) -> Result<()> {
     let hash = resolve_hash(archive, &args.hash)?;
-
     let bytes = archive.read_blob(&hash)?;
+
     let dest = match args.uri {
         Some(raw) => Uri::parse(&raw)?,
-        None => default_destination(archive, &hash)?,
+        // No destination means "restore": put it back where it came from.
+        None => restore_target(archive, &hash)?,
     };
     let operator = backends.resolve(&dest)?;
 
@@ -22,6 +24,22 @@ pub async fn run(backends: &mut Backends, archive: &Archive, args: ExportArgs) -
     } else {
         dest.path().to_string()
     };
+
+    // Restoring over an identical file is a no-op, so a repeated restore is
+    // safe and cheap.
+    if let Ok(metadata) = operator.stat(&path).await
+        && metadata.is_file()
+        && metadata.content_length() == bytes.len() as u64
+        && operator
+            .read(&path)
+            .await
+            .map(|existing| existing.to_vec() == bytes)
+            .unwrap_or(false)
+    {
+        println!("{dest} already matches {hash}; nothing to do");
+        return Ok(());
+    }
+
     operator
         .write(&path, bytes)
         .await
@@ -47,13 +65,26 @@ fn resolve_hash(archive: &Archive, prefix: &str) -> Result<String> {
     }
 }
 
-/// Fall back to `local://<basename>` of the most recent entry for the blob.
-fn default_destination(archive: &Archive, hash: &str) -> Result<Uri> {
-    let entry = archive
+/// Where a bare `export` writes: the original source path when it is missing,
+/// otherwise the entry's basename in the current directory.
+fn restore_target(archive: &Archive, hash: &str) -> Result<Uri> {
+    let entries: Vec<_> = archive
         .index()
         .entries()?
         .into_iter()
-        .find(|entry| entry.blob == hash)
+        .filter(|entry| entry.blob == hash)
+        .collect();
+
+    // A missing source is the strongest signal that this is a restore.
+    if let Some(entry) = entries
+        .iter()
+        .find(|entry| entry.state == EntryState::Missing)
+    {
+        return Uri::parse(&entry.source);
+    }
+
+    let entry = entries
+        .first()
         .with_context(|| format!("no entry references blob {hash}"))?;
     let name = PathBuf::from(&entry.path)
         .file_name()
