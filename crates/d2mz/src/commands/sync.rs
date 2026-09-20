@@ -1,12 +1,12 @@
 use anyhow::{Context, Result, bail};
 
-use crate::archive::Archive;
-use crate::archive::lock::{DEFAULT_TTL_SECS, acquire};
-use crate::archive::sync::{Snapshot, outgoing};
 use crate::backend::Backends;
 use crate::cli::SyncArgs;
 use crate::config::AppConfig;
 use crate::uri::Uri;
+use d2mz_archive::Archive;
+use d2mz_archive::lock::{DEFAULT_TTL_SECS, acquire};
+use d2mz_archive::sync::{Snapshot, outgoing};
 
 /// Result of a sync run, printed as text or JSON.
 #[derive(Debug, serde::Serialize)]

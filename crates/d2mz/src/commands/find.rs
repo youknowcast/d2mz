@@ -3,13 +3,13 @@ use std::env;
 use anyhow::{Context, Result};
 use globset::{Glob, GlobSetBuilder};
 
-use crate::archive::Archive;
-use crate::archive::db::EntryState;
 use crate::backend::Backends;
 use crate::browse;
 use crate::cli::FindArgs;
 use crate::output::EntryView;
 use crate::uri::Uri;
+use d2mz_archive::Archive;
+use d2mz_archive::db::EntryState;
 
 pub async fn run(backends: &mut Backends, archive: Option<&Archive>, args: FindArgs) -> Result<()> {
     let uri = match &args.uri {

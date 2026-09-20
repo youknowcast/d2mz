@@ -10,8 +10,8 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
-use crate::archive::Archive;
-use crate::commands::open::Kind;
+use crate::Archive;
+use crate::media::Kind;
 
 /// Longest edge of a generated thumbnail, in pixels.
 pub const THUMB_EDGE: u32 = 256;
@@ -36,7 +36,7 @@ pub fn thumb_path(archive: &Archive, hash: &str) -> PathBuf {
     archive
         .root()
         .join("thumb")
-        .join(crate::archive::blob_relative_path(hash))
+        .join(crate::blob_relative_path(hash))
         .with_extension("webp")
 }
 

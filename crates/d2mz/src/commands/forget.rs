@@ -1,9 +1,9 @@
 use anyhow::{Result, bail};
 
-use crate::archive::Archive;
-use crate::archive::ingest::unix_now;
-use crate::archive::list::EntryRecord;
 use crate::cli::ForgetArgs;
+use d2mz_archive::Archive;
+use d2mz_archive::ingest::unix_now;
+use d2mz_archive::list::EntryRecord;
 
 pub fn run(archive: &Archive, args: ForgetArgs) -> Result<()> {
     let targets = resolve_targets(archive, &args.targets, args.prefix.as_deref())?;
@@ -30,7 +30,7 @@ fn resolve_targets(
     archive: &Archive,
     selectors: &[String],
     prefix: Option<&str>,
-) -> Result<Vec<crate::archive::db::Entry>> {
+) -> Result<Vec<d2mz_archive::db::Entry>> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
 

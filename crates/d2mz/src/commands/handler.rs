@@ -1,7 +1,7 @@
 use anyhow::Result;
 
-use crate::archive::Archive;
 use crate::cli::{HandlerArgs, HandlerCommand, HandlerListArgs, HandlerRemoveArgs, HandlerSetArgs};
+use d2mz_archive::Archive;
 
 pub fn run(archive: &Archive, args: HandlerArgs) -> Result<()> {
     match args.command {

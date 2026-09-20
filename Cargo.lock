@@ -456,6 +456,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "clap_mangen",
+ "d2mz-archive",
  "dirs",
  "filetime",
  "futures",
@@ -471,6 +472,23 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml",
+ "unicode-width",
+]
+
+[[package]]
+name = "d2mz-archive"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "futures",
+ "image",
+ "opendal",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
  "unicode-width",
 ]
 

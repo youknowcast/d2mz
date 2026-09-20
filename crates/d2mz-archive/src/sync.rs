@@ -8,7 +8,7 @@
 
 use anyhow::Result;
 
-use crate::archive::db::{BlobRow, EntryRow, Handler, Index};
+use crate::db::{BlobRow, EntryRow, Handler, Index};
 
 /// What a merge changed.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]

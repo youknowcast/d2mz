@@ -14,7 +14,7 @@ use serde::Deserialize;
 pub const LOCAL_BACKEND: &str = "local";
 
 /// Backend configuration: the named data sources MZ can address.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     /// Named backends, in declaration order.
     #[serde(default, rename = "backend")]
@@ -44,6 +44,16 @@ impl BackendConfig {
             .iter()
             .filter_map(|(k, v)| value_to_string(v).map(|s| (k.clone(), s)))
             .collect()
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        let mut config = Config {
+            backends: Vec::new(),
+        };
+        config.ensure_local_backend();
+        config
     }
 }
 

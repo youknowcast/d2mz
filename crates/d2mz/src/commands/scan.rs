@@ -1,11 +1,11 @@
 use anyhow::{Context, Result};
 
-use crate::archive::Archive;
-use crate::archive::db::EntryState;
-use crate::archive::ingest::{blob_is_current, ingest_from_entry, unix_now};
 use crate::backend::Backends;
 use crate::cli::ScanArgs;
 use crate::uri::Uri;
+use d2mz_archive::Archive;
+use d2mz_archive::db::EntryState;
+use d2mz_archive::ingest::{blob_is_current, ingest_from_entry, unix_now};
 
 /// Summary of one scan.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -75,8 +75,8 @@ pub async fn run(backends: &mut Backends, archive: &Archive, args: ScanArgs) -> 
                     // `--thumb` backfills thumbnails for already-ingested
                     // media, reading the blob from the local store.
                     if !args.no_thumb {
-                        let kind = crate::commands::open::kind_of(&entry.name);
-                        let _ = crate::archive::thumb::ensure(archive, &entry.blob, kind);
+                        let kind = d2mz_archive::media::kind_of(&entry.name);
+                        let _ = d2mz_archive::thumb::ensure(archive, &entry.blob, kind);
                     }
                     ("present", false)
                 } else {

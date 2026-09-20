@@ -9,9 +9,9 @@ mod support;
 
 use std::collections::BTreeMap;
 
-use d2mz::backend::Backends;
-use d2mz::config::{BackendConfig, Config};
-use d2mz::uri::Uri;
+use mz::Backends;
+use mz::Uri;
+use mz::{BackendConfig, Config};
 use opendal::Operator;
 
 use support::SftpServer;

@@ -80,7 +80,7 @@ impl EntryView {
     }
 
     /// Project an archived entry recorded in the index.
-    pub fn from_archived(entry: &crate::archive::db::Entry) -> EntryView {
+    pub fn from_archived(entry: &d2mz_archive::db::Entry) -> EntryView {
         EntryView {
             uri: entry.source.clone(),
             name: entry.name.clone(),
@@ -187,7 +187,7 @@ impl ObjectView {
     }
 
     /// Attach information from the archive index.
-    pub fn with_archive(mut self, entry: &crate::archive::db::Entry, tags: Vec<String>) -> Self {
+    pub fn with_archive(mut self, entry: &d2mz_archive::db::Entry, tags: Vec<String>) -> Self {
         self.hash = Some(entry.blob.clone());
         self.state = Some(entry.state.as_str().to_string());
         self.tags = tags;
@@ -240,6 +240,29 @@ pub fn human_size(bytes: u64) -> String {
     } else {
         format!("{value:.1}{}", UNITS[unit])
     }
+}
+
+/// Render an archived entry as a single compact line.
+pub fn entry_line(record: &d2mz_archive::list::EntryRecord) -> String {
+    let short = record.hash.get(0..8).unwrap_or(&record.hash);
+    let marker = match record.state.as_str() {
+        "missing" => "!",
+        "deleted" => "x",
+        _ => " ",
+    };
+    let size = human_size(record.size);
+    format!(
+        "{marker}{} {size:>8}  {short:<8} {}",
+        pad_display(&record.backend, 8),
+        record.path,
+    )
+}
+
+/// Render an archived entry in the `ls -l`-style form used by `--long`.
+pub fn entry_long(record: &d2mz_archive::list::EntryRecord) -> String {
+    let short = record.hash.get(0..8).unwrap_or(&record.hash);
+    let size = human_size(record.size);
+    format!("{short} {size:>8}  {}", record.source)
 }
 
 #[cfg(test)]

@@ -10,8 +10,8 @@ use futures::StreamExt;
 use opendal::Operator;
 use tokio::io::AsyncWriteExt;
 
-use crate::archive::Archive;
-use crate::archive::thumb::{GeneratedThumb, ensure};
+use crate::Archive;
+use crate::thumb::{GeneratedThumb, ensure};
 
 /// What an ingest produced.
 #[derive(Debug, Clone)]
@@ -68,15 +68,10 @@ pub async fn ingest(
         && existing.mtime == mtime
         && existing.size == metadata.content_length()
         && blob_is_current(archive, &existing.blob)?
-        && existing.state == crate::archive::db::EntryState::Present
+        && existing.state == crate::db::EntryState::Present
     {
         let thumb = if thumbnails {
-            ensure(
-                archive,
-                &existing.blob,
-                crate::commands::open::kind_of(name),
-            )
-            .unwrap_or(None)
+            ensure(archive, &existing.blob, crate::media::kind_of(name)).unwrap_or(None)
         } else {
             None
         };
@@ -153,7 +148,7 @@ pub async fn ingest(
     };
 
     // Generate a thumbnail now, while the source read is already paid for.
-    let kind = crate::commands::open::kind_of(name);
+    let kind = crate::media::kind_of(name);
     let thumb = if thumbnails {
         ensure(archive, &hash, kind).unwrap_or(None)
     } else {
@@ -189,7 +184,7 @@ pub fn blob_is_current(archive: &Archive, hash: &str) -> Result<bool> {
 pub async fn ingest_from_entry(
     archive: &Archive,
     operator: &Operator,
-    entry: &crate::archive::db::Entry,
+    entry: &crate::db::Entry,
     backend: &str,
     thumbnails: bool,
 ) -> Result<IngestOutcome> {
@@ -224,7 +219,7 @@ mod tests {
 
     #[test]
     fn blob_relative_path_is_sharded() {
-        let path = crate::archive::blob_relative_path("abcdef123456");
+        let path = crate::blob_relative_path("abcdef123456");
         assert_eq!(path.to_string_lossy(), "ab/cd/abcdef123456");
     }
 }

@@ -1,9 +1,9 @@
 use anyhow::{Result, bail};
 
-use crate::archive::Archive;
-use crate::archive::db::Entry;
-use crate::archive::list::EntryRecord;
 use crate::cli::SearchArgs;
+use d2mz_archive::Archive;
+use d2mz_archive::db::Entry;
+use d2mz_archive::list::EntryRecord;
 
 pub fn run(archive: &Archive, args: SearchArgs) -> Result<()> {
     let entries = resolve(archive, &args.query)?;
@@ -13,11 +13,11 @@ pub fn run(archive: &Archive, args: SearchArgs) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&records)?);
     } else if args.long {
         for record in &records {
-            println!("{}", record.long());
+            println!("{}", crate::output::entry_long(record));
         }
     } else {
         for record in &records {
-            println!("{}", record.line());
+            println!("{}", crate::output::entry_line(record));
         }
     }
 

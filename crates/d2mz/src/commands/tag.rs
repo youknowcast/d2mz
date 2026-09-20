@@ -1,8 +1,8 @@
 use anyhow::{Result, bail};
 
-use crate::archive::Archive;
-use crate::archive::list::EntryRecord;
 use crate::cli::{TagAddArgs, TagArgs, TagCommand, TagListArgs, TagRemoveArgs};
+use d2mz_archive::Archive;
+use d2mz_archive::list::EntryRecord;
 
 pub fn run(archive: &Archive, args: TagArgs) -> Result<()> {
     match args.command {
@@ -60,7 +60,9 @@ fn list(archive: &Archive, args: TagListArgs) -> Result<()> {
     if let Some(tag) = &args.tag {
         let entries = archive.index().entries_with_tag(tag)?;
         let records: Vec<EntryRecord> = entries.iter().map(EntryRecord::from).collect();
-        return print_records(&records, args.long, args.json, |record| record.line());
+        return print_records(&records, args.long, args.json, |record| {
+            crate::output::entry_line(record)
+        });
     }
 
     let tags = archive.index().tags()?;
@@ -98,7 +100,7 @@ fn resolve_targets(
     archive: &Archive,
     selectors: &[String],
     prefix: Option<&str>,
-) -> Result<Vec<crate::archive::db::Entry>> {
+) -> Result<Vec<d2mz_archive::db::Entry>> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
@@ -134,7 +136,7 @@ where
         println!("{}", serde_json::to_string_pretty(records)?);
     } else if long {
         for record in records {
-            println!("{}", record.long());
+            println!("{}", crate::output::entry_long(record));
         }
     } else {
         for record in records {

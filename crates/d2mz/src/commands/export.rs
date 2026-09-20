@@ -2,11 +2,11 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 
-use crate::archive::Archive;
-use crate::archive::db::EntryState;
 use crate::backend::Backends;
 use crate::cli::ExportArgs;
 use crate::uri::Uri;
+use d2mz_archive::Archive;
+use d2mz_archive::db::EntryState;
 
 pub async fn run(backends: &mut Backends, archive: &Archive, args: ExportArgs) -> Result<()> {
     let hash = resolve_hash(archive, &args.hash)?;

@@ -1,14 +1,14 @@
 use anyhow::{Context, Result};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
-use crate::archive::Archive;
-use crate::archive::db::Entry;
-use crate::archive::ingest::{IngestOutcome, ingest, unix_now};
-use crate::archive::list::EntryRecord;
 use crate::backend::Backends;
 use crate::browse;
 use crate::cli::IngestArgs;
 use crate::uri::Uri;
+use d2mz_archive::Archive;
+use d2mz_archive::db::Entry;
+use d2mz_archive::ingest::{IngestOutcome, ingest, unix_now};
+use d2mz_archive::list::EntryRecord;
 
 pub async fn run(
     backends: &mut Backends,
@@ -133,10 +133,10 @@ fn sweep_missing(
     let prefix = format!("mz://{}/{}", uri.backend(), prefix_of(uri.path()));
     let mut count = 0;
     for entry in archive.index().entries_for_prefix(&prefix)? {
-        if entry.state == crate::archive::db::EntryState::Deleted {
+        if entry.state == d2mz_archive::db::EntryState::Deleted {
             continue;
         }
-        if !seen.contains(&entry.source) && entry.state != crate::archive::db::EntryState::Missing {
+        if !seen.contains(&entry.source) && entry.state != d2mz_archive::db::EntryState::Missing {
             archive.index().mark_missing(entry.id, unix_now())?;
             count += 1;
         }

@@ -19,10 +19,10 @@ pub mod thumb;
 
 use anyhow::Result;
 
-use crate::archive::Archive;
 use crate::backend::Backends;
 use crate::cli::{Cli, Command};
 use crate::config::AppConfig;
+use d2mz_archive::Archive;
 
 /// Load configuration and dispatch to the requested subcommand.
 pub async fn run(cli: Cli) -> Result<()> {

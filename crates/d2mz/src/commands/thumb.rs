@@ -5,12 +5,12 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
-use crate::archive::Archive;
-use crate::archive::thumb::{ensure, thumb_path};
 use crate::backend::Backends;
 use crate::cli::ThumbArgs;
-use crate::commands::open::{Kind, kind_of};
 use crate::uri::Uri;
+use d2mz_archive::Archive;
+use d2mz_archive::media::{Kind, kind_of};
+use d2mz_archive::thumb::{ensure, thumb_path};
 
 /// Viewers that can render an image into the terminal, in preference order.
 const VIEWERS: [&str; 4] = ["chafa", "viu", "tiv", "img2txt"];
@@ -62,7 +62,7 @@ async fn hash_for(backends: &mut Backends, archive: &Archive, uri: &Uri) -> Resu
     let operator = backends.resolve(uri)?;
     let name = uri.path().rsplit('/').next().unwrap_or(uri.path());
     let outcome =
-        crate::archive::ingest::ingest(archive, &operator, uri.backend(), uri.path(), name, false)
+        d2mz_archive::ingest::ingest(archive, &operator, uri.backend(), uri.path(), name, false)
             .await?;
     Ok(outcome.hash)
 }

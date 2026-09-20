@@ -1,10 +1,10 @@
 use anyhow::Result;
 
-use crate::archive::Archive;
-use crate::archive::db::EntryState;
-use crate::archive::list::EntryRecord;
 use crate::cli::{ArchiveArgs, StateFilter};
 use crate::output::human_size;
+use d2mz_archive::Archive;
+use d2mz_archive::db::EntryState;
+use d2mz_archive::list::EntryRecord;
 
 pub fn run(archive: &Archive, args: ArchiveArgs) -> Result<()> {
     let state = args.state.map(to_state);
@@ -26,11 +26,11 @@ pub fn run(archive: &Archive, args: ArchiveArgs) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&records)?);
     } else if args.long {
         for record in &records {
-            println!("{}", record.long());
+            println!("{}", crate::output::entry_long(record));
         }
     } else {
         for record in &records {
-            println!("{}", record.line());
+            println!("{}", crate::output::entry_line(record));
         }
     }
     if !args.json && records.len() > 1 {

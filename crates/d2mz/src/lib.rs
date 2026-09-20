@@ -3,7 +3,6 @@
 //! This crate is the top layer: it owns the CLI, the archive, and the
 //! presentation of results. Data access goes through the `mz` crate.
 
-pub mod archive;
 pub mod browse;
 pub mod cli;
 pub mod commands;

@@ -10,7 +10,10 @@ pub mod config;
 pub mod uri;
 
 pub use backend::Backends;
+
 pub use config::{BackendConfig, Config, LOCAL_BACKEND};
+/// The OpenDAL types MZ exposes in its interface.
+pub use opendal;
 pub use uri::Uri;
 
 /// Install the process-wide HTTP transport and service registry.

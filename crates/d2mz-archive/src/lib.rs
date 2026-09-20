@@ -13,6 +13,7 @@ pub mod db;
 pub mod ingest;
 pub mod list;
 pub mod lock;
+pub mod media;
 pub mod sync;
 pub mod thumb;
 

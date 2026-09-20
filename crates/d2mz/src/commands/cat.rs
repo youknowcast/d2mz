@@ -2,10 +2,10 @@ use anyhow::{Context, Result, bail};
 use futures::StreamExt;
 use tokio::io::AsyncWriteExt;
 
-use crate::archive::Archive;
 use crate::backend::Backends;
 use crate::cli::CatArgs;
 use crate::uri::Uri;
+use d2mz_archive::Archive;
 
 pub async fn run(backends: &mut Backends, archive: Option<&Archive>, args: CatArgs) -> Result<()> {
     let uri = Uri::parse(&args.uri)?;

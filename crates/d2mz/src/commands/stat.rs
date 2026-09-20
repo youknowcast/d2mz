@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
 
-use crate::archive::Archive;
 use crate::backend::Backends;
 use crate::cli::StatArgs;
 use crate::output::ObjectView;
 use crate::uri::Uri;
+use d2mz_archive::Archive;
 
 pub async fn run(backends: &mut Backends, archive: Option<&Archive>, args: StatArgs) -> Result<()> {
     let uri = Uri::parse(&args.uri)?;
