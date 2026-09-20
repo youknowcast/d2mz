@@ -213,6 +213,24 @@ IDs are keyed by URI (`mz://<backend>/<path>`), so a shared main database
 assumes every node addresses the same source the same way — configure the
 same backend names on each machine.
 
+## Interactive selection
+
+`search`, `archive` and `find` share one picker (`d2mz::interactive`). It
+engages only when stdout is a terminal and `fzf` is on `PATH`; otherwise the
+plain listing is printed, so pipes, `--json` and machines without fzf keep
+working unchanged.
+
+Candidates are `URI<TAB>display` lines fed to fzf with
+`--delimiter='\t' --with-nth=2..`, so the URI stays machine-parseable while
+the user sees the rendered row. `--expect` reports the key pressed:
+
+- Enter → `open` the URI (or print it, with `--print`)
+- Ctrl-P (`alt-enter` alias) → print the URI
+
+`ctrl-enter` is not a key fzf can report, hence Ctrl-P. The output is parsed
+by `parse_choice`, which is unit-tested; the full loop is exercised through a
+pseudo-terminal under the `test-support` feature.
+
 ## Handlers and thumbnails
 
 ### Opening by kind

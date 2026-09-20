@@ -7,6 +7,7 @@ pub mod browse;
 pub mod cli;
 pub mod commands;
 pub mod config;
+pub mod interactive;
 pub mod output;
 
 // Re-exported so callers keep using `d2mz::uri::Uri` and friends.

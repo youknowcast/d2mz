@@ -109,6 +109,24 @@ d2mz export 3f9a1c2b ./restored.jpg        # hash prefix is enough
 d2mz export 3f9a1c2b mz://rfs/restored.jpg
 ```
 
+### Interactive selection
+
+On a terminal with [`fzf`](https://github.com/junegunn/fzf) installed, the
+listing commands open an interactive picker instead of printing:
+
+- **Enter** opens the selection (`d2mz open`)
+- **Ctrl-P** prints the selection's URI to stdout
+
+```sh
+d2mz search report              # pick interactively, Enter opens
+d2mz search report --print      # Enter prints the URI instead
+d2mz archive --no-interactive   # always print plainly
+d2mz find ./src                 # picker over live results too
+```
+
+Piping, `--json` or a missing `fzf` fall back to plain output, so scripts
+are unaffected. `--print` / `--open` set which action Enter performs.
+
 ### Opening files
 
 `open` picks an application by file kind (`--as` overrides detection) and

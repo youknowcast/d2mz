@@ -1,12 +1,14 @@
 use anyhow::Result;
 
+use crate::backend::Backends;
 use crate::cli::{ArchiveArgs, StateFilter};
+use crate::commands::search::{finish, interactive_enabled, pick};
 use crate::output::human_size;
 use d2mz_archive::Archive;
 use d2mz_archive::db::EntryState;
 use d2mz_archive::list::EntryRecord;
 
-pub fn run(archive: &Archive, args: ArchiveArgs) -> Result<()> {
+pub async fn run(backends: &mut Backends, archive: &Archive, args: ArchiveArgs) -> Result<()> {
     let state = args.state.map(to_state);
     let mut entries = match (state, &args.prefix) {
         (Some(state), _) => archive.index().entries_in_state(state)?,
@@ -21,6 +23,13 @@ pub fn run(archive: &Archive, args: ArchiveArgs) -> Result<()> {
     }
 
     let records: Vec<EntryRecord> = entries.iter().map(EntryRecord::from).collect();
+
+    // On a terminal, narrow interactively instead of dumping the list.
+    if interactive_enabled(&args.interactive, args.json)
+        && let Some((uri, action)) = pick(&records, &args.interactive)?
+    {
+        return finish(backends, archive, &uri, action).await;
+    }
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&records)?);

@@ -161,6 +161,9 @@ pub struct FindArgs {
     /// Emit the results as JSON.
     #[arg(long)]
     pub json: bool,
+
+    #[command(flatten)]
+    pub interactive: InteractiveArgs,
 }
 
 /// Arguments for `d2mz ingest`.
@@ -347,6 +350,9 @@ pub struct ArchiveArgs {
     /// Emit the listing as JSON.
     #[arg(long)]
     pub json: bool,
+
+    #[command(flatten)]
+    pub interactive: InteractiveArgs,
 }
 
 /// Presence filter for `archive`.
@@ -437,6 +443,41 @@ pub struct TagListArgs {
     pub json: bool,
 }
 
+/// Interactive-selection flags shared by listing commands.
+///
+/// On a terminal with fzf installed, these commands open an interactive
+/// picker by default: Enter opens the selection, Ctrl-Enter prints its URI.
+#[derive(Debug, Clone, Args)]
+pub struct InteractiveArgs {
+    /// Print the selected URI instead of opening it.
+    #[arg(short, long, conflicts_with = "open")]
+    pub print: bool,
+
+    /// Open the selected entry (the default when neither is given).
+    #[arg(long, conflicts_with = "print")]
+    pub open: bool,
+
+    /// Never start an interactive picker; just print the listing.
+    #[arg(long)]
+    pub no_interactive: bool,
+}
+
+impl InteractiveArgs {
+    /// Whether the user forced plain, non-interactive output.
+    pub fn plain(&self) -> bool {
+        self.no_interactive
+    }
+
+    /// The default action for Enter, from `--print` / `--open`.
+    pub fn default_action(&self) -> crate::interactive::DefaultAction {
+        if self.print {
+            crate::interactive::DefaultAction::Print
+        } else {
+            crate::interactive::DefaultAction::Open
+        }
+    }
+}
+
 /// Arguments for `d2mz search`.
 #[derive(Debug, Args)]
 pub struct SearchArgs {
@@ -452,4 +493,7 @@ pub struct SearchArgs {
     /// Emit the results as JSON.
     #[arg(long)]
     pub json: bool,
+
+    #[command(flatten)]
+    pub interactive: InteractiveArgs,
 }

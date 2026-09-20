@@ -54,12 +54,51 @@ pub async fn run(backends: &mut Backends, archive: Option<&Archive>, args: FindA
         true
     });
 
+    // On a terminal, narrow interactively instead of dumping the list.
+    if crate::commands::search::interactive_enabled(&args.interactive, args.json)
+        && let Some((uri, action)) = pick(&views, &args.interactive)?
+    {
+        match action {
+            crate::interactive::Action::Print => {
+                println!("{uri}");
+                return Ok(());
+            }
+            crate::interactive::Action::Open => {
+                // Opening needs an archive for the vanished-source fallback;
+                // without one, report the URI instead.
+                match archive {
+                    Some(archive) => {
+                        return crate::interactive::open_uri(backends, archive, &uri).await;
+                    }
+                    None => {
+                        println!("{uri}");
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
+
     browse::print_views(&views, args.long, args.json)?;
     if views.is_empty() {
         // Match grep: no matches is a distinct, script-friendly exit.
         std::process::exit(1);
     }
     Ok(())
+}
+
+/// Run the interactive picker over found views.
+///
+/// Returns the chosen URI and action, or `None` when the user aborted.
+pub fn pick(
+    views: &[EntryView],
+    args: &crate::cli::InteractiveArgs,
+) -> Result<Option<(String, crate::interactive::Action)>> {
+    let candidates: Vec<crate::interactive::Candidate> = views
+        .iter()
+        .map(|view| crate::interactive::Candidate::new(view.uri.clone(), view.long()))
+        .collect();
+    crate::interactive::pick(&candidates, args.default_action())
 }
 
 /// Entry views for an archived prefix, or `None` when nothing is recorded.

@@ -89,7 +89,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Command::Archive(args) => {
             let archive = Archive::open(&archive_dir)?;
-            archive::run(&archive, args)
+            archive::run(&mut backends, &archive, args).await
         }
         Command::Export(args) => {
             let archive = Archive::open(&archive_dir)?;
@@ -103,7 +103,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Command::Search(args) => {
             let archive = Archive::open(&archive_dir)?;
-            search::run(&archive, args)
+            search::run(&mut backends, &archive, args).await
         }
         Command::Completions(args) => generate::completions(args),
         Command::Man => generate::man(),
