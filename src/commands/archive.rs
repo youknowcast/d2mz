@@ -8,11 +8,18 @@ use crate::output::human_size;
 
 pub fn run(archive: &Archive, args: ArchiveArgs) -> Result<()> {
     let state = args.state.map(to_state);
-    let entries = match (state, &args.prefix) {
+    let mut entries = match (state, &args.prefix) {
         (Some(state), _) => archive.index().entries_in_state(state)?,
         (None, Some(prefix)) => archive.index().entries_under(prefix)?,
         (None, None) => archive.index().entries()?,
     };
+
+    // Retired entries are tombstones; keep them out of the way unless their
+    // state is asked for explicitly.
+    if state != Some(EntryState::Deleted) {
+        entries.retain(|entry| entry.state != EntryState::Deleted);
+    }
+
     let records: Vec<EntryRecord> = entries.iter().map(EntryRecord::from).collect();
 
     if args.json {

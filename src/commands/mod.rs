@@ -49,15 +49,21 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Command::Ingest(args) => {
             let archive = Archive::open(&archive_dir)?;
-            ingest::run(&mut backends, &archive, args).await
+            let result = ingest::run(&mut backends, &archive, args).await;
+            auto_sync(&mut backends, &config, &archive, result.is_ok()).await?;
+            result
         }
         Command::Scan(args) => {
             let archive = Archive::open(&archive_dir)?;
-            scan::run(&mut backends, &archive, args).await
+            let result = scan::run(&mut backends, &archive, args).await;
+            auto_sync(&mut backends, &config, &archive, result.is_ok()).await?;
+            result
         }
         Command::Forget(args) => {
             let archive = Archive::open(&archive_dir)?;
-            forget::run(&archive, args)
+            let result = forget::run(&archive, args);
+            auto_sync(&mut backends, &config, &archive, result.is_ok()).await?;
+            result
         }
         Command::Sync(args) => {
             let archive = Archive::open(&archive_dir)?;
@@ -65,7 +71,9 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Command::Handler(args) => {
             let archive = Archive::open(&archive_dir)?;
-            handler::run(&archive, args)
+            let result = handler::run(&archive, args);
+            auto_sync(&mut backends, &config, &archive, result.is_ok()).await?;
+            result
         }
         Command::Open(args) => {
             let archive = Archive::open(&archive_dir)?;
@@ -85,7 +93,9 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Command::Tag(args) => {
             let archive = Archive::open(&archive_dir)?;
-            tag::run(&archive, args)
+            let result = tag::run(&archive, args);
+            auto_sync(&mut backends, &config, &archive, result.is_ok()).await?;
+            result
         }
         Command::Search(args) => {
             let archive = Archive::open(&archive_dir)?;
@@ -94,4 +104,30 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Completions(args) => generate::completions(args),
         Command::Man => generate::man(),
     }
+}
+
+/// Push to the main database after an index change, when configured.
+///
+/// Opt-in via `auto_sync = true` (and a `main`); it never runs when the
+/// command itself failed, and its own failure is reported but does not mask
+/// the command's result.
+async fn auto_sync(
+    backends: &mut Backends,
+    config: &Config,
+    archive: &Archive,
+    command_succeeded: bool,
+) -> Result<()> {
+    if !command_succeeded || !config.auto_sync || config.main.is_none() {
+        return Ok(());
+    }
+    let args = crate::cli::SyncArgs {
+        remote: None,
+        init: false,
+        force: false,
+        json: false,
+    };
+    if let Err(error) = sync::run(backends, config, archive, args).await {
+        eprintln!("warning: auto-sync failed: {error}");
+    }
+    Ok(())
 }
