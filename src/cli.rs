@@ -33,6 +33,10 @@ pub enum Command {
     Archive(ArchiveArgs),
     /// Write an archived blob back out to a URI.
     Export(ExportArgs),
+    /// Add, remove or list tags on archived entries.
+    Tag(TagArgs),
+    /// Full-text search across archived entries.
+    Search(SearchArgs),
 }
 
 /// A byte-size filter value such as `10K`, `5M`, or `2G`.
@@ -179,4 +183,86 @@ pub struct ExportArgs {
 
     /// Destination URI. Defaults to the object's recorded source name.
     pub uri: Option<String>,
+}
+
+/// Arguments for `d2mz tag`.
+#[derive(Debug, Args)]
+pub struct TagArgs {
+    #[command(subcommand)]
+    pub command: TagCommand,
+}
+
+/// Tag subcommands.
+#[derive(Debug, Subcommand)]
+pub enum TagCommand {
+    /// Add tags to entries.
+    Add(TagAddArgs),
+    /// Remove tags from entries.
+    Rm(TagRemoveArgs),
+    /// List entries carrying a tag, or all tags with no argument.
+    List(TagListArgs),
+}
+
+/// Arguments for `d2mz tag add`.
+#[derive(Debug, Args)]
+pub struct TagAddArgs {
+    /// Comma-separated tags to attach.
+    pub tags: String,
+
+    /// Target archived entry: an entry id, path, name or source URI.
+    #[arg(long = "id", value_name = "TARGET")]
+    pub targets: Vec<String>,
+
+    /// Apply to every entry whose path starts with this prefix.
+    #[arg(long, value_name = "PREFIX")]
+    pub prefix: Option<String>,
+
+    /// Emit the results as JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// Arguments for `d2mz tag rm`.
+#[derive(Debug, Args)]
+pub struct TagRemoveArgs {
+    /// Comma-separated tags to detach.
+    pub tags: String,
+
+    /// Target archived entry: an entry id, path, name or source URI.
+    #[arg(long = "id", value_name = "TARGET")]
+    pub targets: Vec<String>,
+
+    /// Apply to every entry whose path starts with this prefix.
+    #[arg(long, value_name = "PREFIX")]
+    pub prefix: Option<String>,
+}
+
+/// Arguments for `d2mz tag list`.
+#[derive(Debug, Args)]
+pub struct TagListArgs {
+    /// Show only entries carrying this tag.
+    pub tag: Option<String>,
+
+    /// Show a long listing.
+    #[arg(short, long)]
+    pub long: bool,
+
+    /// Emit the results as JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// Arguments for `d2mz search`.
+#[derive(Debug, Args)]
+pub struct SearchArgs {
+    /// FTS5 query, e.g. `report`, `report OR photo`, `"exact phrase"`.
+    pub query: String,
+
+    /// Show a long listing.
+    #[arg(short, long)]
+    pub long: bool,
+
+    /// Emit the results as JSON.
+    #[arg(long)]
+    pub json: bool,
 }

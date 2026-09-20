@@ -10,8 +10,8 @@ work no matter where the bytes live.
 > Status: early. Browse (`ls`, `cat`, `stat`, `find`) works against local
 > files, S3-compatible storage, and plain HTTP(S) URLs. A content-addressed
 > archive (`ingest`, `archive`, `export`) performs BLAKE3-based
-> deduplication. Tags and full-text search are still to come. The original
-> Python prototype is preserved under [`legacy/`](legacy/).
+> deduplication, with tags and full-text search (`tag`, `search`). The
+> original Python prototype is preserved under [`legacy/`](legacy/).
 
 ## Build
 
@@ -41,13 +41,25 @@ d2mz ls mz://r2/backups/2026     # a named remote backend
 
 `ingest` copies objects into a local content-addressed store: identical
 contents are written once and shared between entries. `export` writes a blob
-back out to any backend.
+back out to any backend. Tags and full-text search run on the same SQLite
+index.
 
 ```sh
 d2mz ingest -R ./photos                    # ingest a tree
 d2mz ingest mz://rfs/backups --name '*.tar'
+
 d2mz archive -l                            # list archived entries
 d2mz archive --prefix photos/ --json
+
+d2mz tag add holiday --id photos/beach.jpg # by path, name or source URI
+d2mz tag add work --prefix docs/           # by path/source prefix
+d2mz tag list holidays                      # entries carrying a tag
+d2mz tag list                               # all tags with counts
+d2mz tag rm work --id docs/report.txt
+
+d2mz search report                          # FTS5 over name/path/source/tags
+d2mz search 'work OR holiday' -l
+
 d2mz export 3f9a1c2b ./restored.jpg        # hash prefix is enough
 d2mz export 3f9a1c2b mz://rfs/restored.jpg
 ```

@@ -39,6 +39,15 @@ pub struct BlobStat {
     pub entries: i64,
 }
 
+/// A tag and how many entries carry it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TagStat {
+    /// Tag text.
+    pub tag: String,
+    /// Number of entries carrying the tag.
+    pub entries: i64,
+}
+
 /// The archive metadata index.
 pub struct Index {
     conn: Connection,
@@ -87,6 +96,26 @@ impl Index {
             );
 
             CREATE INDEX IF NOT EXISTS entry_blob ON entry(blob_hash);
+
+            CREATE TABLE IF NOT EXISTS tag (
+                entry_id INTEGER NOT NULL REFERENCES entry(id) ON DELETE CASCADE,
+                tag      TEXT NOT NULL,
+                PRIMARY KEY (entry_id, tag)
+            );
+
+            CREATE INDEX IF NOT EXISTS tag_name ON tag(tag);
+
+            CREATE TABLE IF NOT EXISTS meta (
+                entry_id INTEGER NOT NULL REFERENCES entry(id) ON DELETE CASCADE,
+                key      TEXT NOT NULL,
+                value    TEXT NOT NULL,
+                PRIMARY KEY (entry_id, key)
+            );
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS entry_fts USING fts5(
+                name, path, source, tags,
+                tokenize='unicode61'
+            );
             ",
             )
             .context("applying schema")?;
@@ -129,7 +158,156 @@ impl Index {
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![blob, name, path, source, u64_to_i64(size), created_at],
         )?;
-        Ok(self.conn.last_insert_rowid())
+        let id = self.conn.last_insert_rowid();
+        self.fts_upsert(id, name, path, source)?;
+        Ok(id)
+    }
+
+    /// Fetch a single entry by id.
+    pub fn entry(&self, id: i64) -> Result<Option<Entry>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT id, blob_hash, name, path, source, size, created_at
+                 FROM entry WHERE id = ?1",
+                [id],
+                row_to_entry,
+            )
+            .optional()?)
+    }
+
+    /// Look up entries whose id-like selector matches name, path, source or
+    /// the tail of a path (`docs/report.txt` matches `tmp/x/docs/report.txt`).
+    pub fn find_entries(&self, needle: &str) -> Result<Vec<Entry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, blob_hash, name, path, source, size, created_at
+             FROM entry
+             WHERE name = ?1 OR path = ?1 OR source = ?1
+                OR path LIKE ?2 OR source LIKE ?2 OR name = ?3
+             ORDER BY id",
+        )?;
+        let suffix = format!("%/{needle}");
+        let basename = needle.rsplit('/').next().unwrap_or(needle);
+        let rows = stmt.query_map(params![needle, suffix, basename], row_to_entry)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// All entries carrying `tag`.
+    pub fn entries_with_tag(&self, tag: &str) -> Result<Vec<Entry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT e.id, e.blob_hash, e.name, e.path, e.source, e.size, e.created_at
+             FROM entry e JOIN tag t ON t.entry_id = e.id
+             WHERE t.tag = ?1 ORDER BY e.path",
+        )?;
+        let rows = stmt.query_map([tag], row_to_entry)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Every tag in use, with counts.
+    pub fn tags(&self) -> Result<Vec<TagStat>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT tag, COUNT(*) FROM tag GROUP BY tag ORDER BY tag")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(TagStat {
+                tag: row.get(0)?,
+                entries: row.get(1)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Tags attached to one entry.
+    pub fn tags_of(&self, entry_id: i64) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT tag FROM tag WHERE entry_id = ?1 ORDER BY tag")?;
+        let rows = stmt.query_map([entry_id], |row| row.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Attach a tag to an entry. Returns whether it was newly added.
+    pub fn add_tag(&self, entry_id: i64, tag: &str) -> Result<bool> {
+        let changed = self.conn.execute(
+            "INSERT OR IGNORE INTO tag(entry_id, tag) VALUES (?1, ?2)",
+            params![entry_id, tag],
+        )?;
+        if changed > 0 {
+            self.fts_refresh(entry_id)?;
+        }
+        Ok(changed > 0)
+    }
+
+    /// Remove a tag from an entry. Returns whether it existed.
+    pub fn remove_tag(&self, entry_id: i64, tag: &str) -> Result<bool> {
+        let changed = self.conn.execute(
+            "DELETE FROM tag WHERE entry_id = ?1 AND tag = ?2",
+            params![entry_id, tag],
+        )?;
+        if changed > 0 {
+            self.fts_refresh(entry_id)?;
+        }
+        Ok(changed > 0)
+    }
+
+    /// Set a metadata key for an entry.
+    pub fn set_meta(&self, entry_id: i64, key: &str, value: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO meta(entry_id, key, value) VALUES (?1, ?2, ?3)
+             ON CONFLICT(entry_id, key) DO UPDATE SET value = excluded.value",
+            params![entry_id, key, value],
+        )?;
+        Ok(())
+    }
+
+    /// Full-text search over names, paths, sources and tags.
+    pub fn search(&self, query: &str) -> Result<Vec<Entry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT e.id, e.blob_hash, e.name, e.path, e.source, e.size, e.created_at
+             FROM entry_fts f JOIN entry e ON e.id = f.rowid
+             WHERE entry_fts MATCH ?1
+             ORDER BY bm25(entry_fts), e.path",
+        )?;
+        let rows = stmt.query_map([query], row_to_entry)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Rebuild the search index from scratch.
+    pub fn reindex(&self) -> Result<()> {
+        self.conn.execute("DELETE FROM entry_fts", [])?;
+        let ids: Vec<i64> = {
+            let mut stmt = self.conn.prepare("SELECT id FROM entry ORDER BY id")?;
+            let rows = stmt.query_map([], |row| row.get(0))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        for id in ids {
+            self.fts_refresh(id)?;
+        }
+        Ok(())
+    }
+
+    /// Write or replace the search document for an entry.
+    fn fts_upsert(&self, entry_id: i64, name: &str, path: &str, source: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO entry_fts(rowid, name, path, source, tags) VALUES (?1, ?2, ?3, ?4, '')",
+            params![entry_id, name, path, source],
+        )?;
+        Ok(())
+    }
+
+    /// Rebuild the search document for an entry, including its tags.
+    fn fts_refresh(&self, entry_id: i64) -> Result<()> {
+        let Some(entry) = self.entry(entry_id)? else {
+            return Ok(());
+        };
+        let tags = self.tags_of(entry_id)?.join(" ");
+        self.conn
+            .execute("DELETE FROM entry_fts WHERE rowid = ?1", [entry_id])?;
+        self.conn.execute(
+            "INSERT INTO entry_fts(rowid, name, path, source, tags) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![entry_id, entry.name, entry.path, entry.source, tags],
+        )?;
+        Ok(())
     }
 
     /// Every entry, newest first.
@@ -149,6 +327,17 @@ impl Index {
              FROM entry WHERE path LIKE ?1 ORDER BY path",
         )?;
         let pattern = format!("{prefix}%");
+        let rows = stmt.query_map([pattern], row_to_entry)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Entries whose path or source URI starts with `prefix`.
+    pub fn entries_matching_prefix(&self, prefix: &str) -> Result<Vec<Entry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, blob_hash, name, path, source, size, created_at
+             FROM entry WHERE path LIKE ?1 OR source LIKE ?1 ORDER BY path",
+        )?;
+        let pattern = format!("%{prefix}%");
         let rows = stmt.query_map([pattern], row_to_entry)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
@@ -261,5 +450,109 @@ mod tests {
         let found = index.entries_under("logs/").unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].path, "logs/a.txt");
+    }
+
+    fn seeded() -> Index {
+        let index = Index::open_in_memory().unwrap();
+        index.insert_blob("abc", 1, 1).unwrap();
+        index
+            .insert_entry(
+                "abc",
+                "report.txt",
+                "docs/report.txt",
+                "mz://local/docs/report.txt",
+                1,
+                1,
+            )
+            .unwrap();
+        index
+            .insert_entry(
+                "abc",
+                "photo.jpg",
+                "media/photo.jpg",
+                "mz://local/media/photo.jpg",
+                1,
+                1,
+            )
+            .unwrap();
+        index
+    }
+
+    #[test]
+    fn tags_are_added_removed_and_listed() {
+        let index = seeded();
+        assert!(index.add_tag(1, "work").unwrap());
+        assert!(!index.add_tag(1, "work").unwrap(), "idempotent");
+        assert!(index.add_tag(2, "work").unwrap());
+
+        assert_eq!(index.tags_of(1).unwrap(), vec!["work"]);
+        let stats = index.tags().unwrap();
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].entries, 2);
+
+        assert!(index.remove_tag(1, "work").unwrap());
+        assert!(!index.remove_tag(1, "work").unwrap());
+        assert_eq!(index.entries_with_tag("work").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn search_finds_names_paths_and_tags() {
+        let index = seeded();
+        index.add_tag(2, "holiday").unwrap();
+
+        assert_eq!(index.search("report").unwrap().len(), 1);
+        assert_eq!(index.search("media").unwrap().len(), 1);
+        assert_eq!(index.search("holiday").unwrap().len(), 1);
+        assert_eq!(index.search("report media").unwrap().len(), 0);
+    }
+
+    #[test]
+    fn reindex_restores_searchability() {
+        let index = seeded();
+        index.add_tag(1, "work").unwrap();
+        index.reindex().unwrap();
+
+        assert_eq!(index.search("work").unwrap().len(), 1);
+        assert_eq!(index.search("photo").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn metadata_is_upserted() {
+        let index = seeded();
+        index.set_meta(1, "author", "ada").unwrap();
+        index.set_meta(1, "author", "grace").unwrap();
+        let value: String = index
+            .conn
+            .query_row(
+                "SELECT value FROM meta WHERE entry_id = 1 AND key = 'author'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(value, "grace");
+    }
+
+    #[test]
+    fn find_entries_matches_paths() {
+        let index = seeded();
+        let found = index.find_entries("docs/report.txt").unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].name, "report.txt");
+    }
+
+    #[test]
+    fn find_entries_matches_basenames_and_tails() {
+        let index = seeded();
+        assert_eq!(index.find_entries("photo.jpg").unwrap().len(), 1);
+        assert_eq!(index.find_entries("docs/report.txt").unwrap().len(), 1);
+        assert_eq!(index.find_entries("missing.txt").unwrap().len(), 0);
+    }
+
+    #[test]
+    fn entries_matching_prefix_checks_sources_too() {
+        let index = seeded();
+        assert_eq!(index.entries_matching_prefix("docs/").unwrap().len(), 1);
+        assert_eq!(index.entries_matching_prefix("media").unwrap().len(), 1);
+        assert_eq!(index.entries_matching_prefix("nope").unwrap().len(), 0);
     }
 }

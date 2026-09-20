@@ -125,6 +125,45 @@ fn export_round_trips_a_blob() {
     );
 }
 
+#[test]
+fn tags_can_be_added_listed_and_removed() {
+    let archive = tempfile::tempdir().unwrap();
+    let src = source();
+    run(d2mz(archive.path()).args(["ingest", "-R"]).arg(src.path()));
+
+    run(d2mz(archive.path()).args(["tag", "add", "work", "--id", "a.txt"]));
+
+    let tagged = stdout(&run(d2mz(archive.path()).args(["tag", "list", "work"])));
+    assert!(tagged.contains("a.txt"), "{tagged}");
+
+    let all = stdout(&run(d2mz(archive.path()).args(["tag", "list"])));
+    assert!(all.contains("work"), "{all}");
+
+    run(d2mz(archive.path()).args(["tag", "rm", "work", "--id", "a.txt"]));
+    let after = stdout(&run(d2mz(archive.path()).args(["tag", "list"])));
+    assert!(!after.contains("work"), "{after}");
+}
+
+#[test]
+fn search_finds_by_tag_and_name() {
+    let archive = tempfile::tempdir().unwrap();
+    let src = source();
+    run(d2mz(archive.path()).args(["ingest", "-R"]).arg(src.path()));
+    run(d2mz(archive.path()).args(["tag", "add", "holiday", "--id", "b.txt"]));
+
+    let by_tag = stdout(&run(d2mz(archive.path()).args(["search", "holiday"])));
+    assert!(by_tag.contains("b.txt"), "{by_tag}");
+
+    let by_name = stdout(&run(d2mz(archive.path()).args(["search", "dup"])));
+    assert!(by_name.contains("dup.txt"), "{by_name}");
+
+    let miss = stdout(&run(
+        d2mz(archive.path()).args(["search", "holiday", "--json"])
+    ));
+    let parsed: Vec<serde_json::Value> = serde_json::from_str(&miss).unwrap();
+    assert_eq!(parsed.len(), 1);
+}
+
 fn count_files(dir: &Path) -> usize {
     let mut count = 0;
     let mut stack = vec![dir.to_path_buf()];
