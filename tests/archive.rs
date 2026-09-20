@@ -300,11 +300,9 @@ fn reingest_is_incremental_and_sweeps_vanished_sources() {
     run(d2mz(archive.path()).args(["ingest", "-R"]).arg(src.path()));
 
     // A second pass reads nothing new.
-    let second = stdout(&run(
-        d2mz(archive.path())
-            .args(["ingest", "-R", "--json"])
-            .arg(src.path()),
-    ));
+    let second = stdout(&run(d2mz(archive.path())
+        .args(["ingest", "-R", "--json"])
+        .arg(src.path())));
     let records: Vec<serde_json::Value> = serde_json::from_str(&second).unwrap();
     assert!(
         records.iter().all(|record| record["unchanged"] == true),
@@ -316,7 +314,7 @@ fn reingest_is_incremental_and_sweeps_vanished_sources() {
     run(d2mz(archive.path()).args(["ingest", "-R"]).arg(src.path()));
 
     let listing = stdout(&run(
-        d2mz(archive.path()).args(["archive", "--state", "missing", "--json"]),
+        d2mz(archive.path()).args(["archive", "--state", "missing", "--json"])
     ));
     let missing: Vec<serde_json::Value> = serde_json::from_str(&listing).unwrap();
     assert_eq!(missing.len(), 1);
@@ -384,12 +382,10 @@ fn find_answers_from_the_index_when_archived() {
 
     // The source directory is removed, yet find still answers from the index.
     fs::remove_dir_all(src.path()).unwrap();
-    let listing = stdout(
-        &run(d2mz(archive.path())
-            .args(["find"])
-            .arg(src.path())
-            .args(["--name", "*.txt"])),
-    );
+    let listing = stdout(&run(d2mz(archive.path())
+        .args(["find"])
+        .arg(src.path())
+        .args(["--name", "*.txt"])));
     assert!(listing.contains("a.txt"), "{listing}");
     assert!(!listing.contains("b.log"), "{listing}");
 }
