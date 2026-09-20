@@ -4,6 +4,7 @@ pub mod archive;
 pub mod cat;
 pub mod export;
 pub mod find;
+pub mod generate;
 pub mod ingest;
 pub mod ls;
 pub mod search;
@@ -51,5 +52,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             let archive = Archive::open(&archive_dir)?;
             search::run(&archive, args)
         }
+        Command::Completions(args) => generate::completions(args),
+        Command::Man => generate::man(),
     }
 }

@@ -99,7 +99,19 @@ sorts by path. When the target is a file it is shown as a single entry.
 - **M2** (done) S3-compatible backend, verified against RustFS.
 - **M3** (done) archive schema, `ingest` / `export`, BLAKE3 dedup.
 - **M4** (done) tags and search (SQLite FTS5).
-- **M5** static musl build, shell completions, man page.
+- **M5** (done) static musl build, shell completions, man page.
+
+## Static builds
+
+A musl C compiler is unavoidable: `libsqlite3-sys` bundles SQLite and ring
+compiles assembly/C. `scripts/build-static.sh` downloads zig and uses it as
+that compiler, then links with rust's own `rust-lld` and self-contained musl
+CRT (`-C linker=rust-lld -C link-self-contained=yes`). Sharing zig's CRT with
+rust's produces duplicate `_start` symbols, so zig is restricted to compiling
+C and never links.
+
+The resulting `target/x86_64-unknown-linux-musl/release/d2mz` is a
+static-pie binary with no dynamic dependencies.
 
 ## Build and dependencies
 
