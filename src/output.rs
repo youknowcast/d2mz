@@ -159,6 +159,12 @@ pub struct ObjectView {
     pub content_type: Option<String>,
     /// ETag, when advertised by the backend.
     pub etag: Option<String>,
+    /// BLAKE3 hash, when the object is archived.
+    pub hash: Option<String>,
+    /// Archived presence state, when recorded.
+    pub state: Option<String>,
+    /// Tags attached to the archived entry.
+    pub tags: Vec<String>,
 }
 
 impl ObjectView {
@@ -174,7 +180,18 @@ impl ObjectView {
             modified: base.modified,
             content_type: metadata.content_type().map(str::to_string),
             etag: metadata.etag().map(str::to_string),
+            hash: None,
+            state: None,
+            tags: Vec::new(),
         }
+    }
+
+    /// Attach information from the archive index.
+    pub fn with_archive(mut self, entry: &crate::archive::db::Entry, tags: Vec<String>) -> Self {
+        self.hash = Some(entry.blob.clone());
+        self.state = Some(entry.state.as_str().to_string());
+        self.tags = tags;
+        self
     }
 
     /// Multi-line human-readable rendering.
@@ -191,6 +208,19 @@ impl ObjectView {
         }
         if let Some(etag) = &self.etag {
             lines.push(format!("etag:         {etag}"));
+        }
+        match &self.hash {
+            Some(hash) => {
+                lines.push(format!("hash:         {hash}"));
+                lines.push(format!(
+                    "state:        {}",
+                    self.state.as_deref().unwrap_or("-")
+                ));
+                if !self.tags.is_empty() {
+                    lines.push(format!("tags:         {}", self.tags.join(", ")));
+                }
+            }
+            None => lines.push("archived:     no".to_string()),
         }
         lines.join("\n")
     }

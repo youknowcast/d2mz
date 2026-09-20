@@ -40,7 +40,11 @@ pub async fn run(cli: Cli) -> Result<()> {
             let archive = Archive::open(&archive_dir).ok();
             cat::run(&mut backends, archive.as_ref(), args).await
         }
-        Command::Stat(args) => stat::run(&mut backends, args).await,
+        Command::Stat(args) => {
+            // Fold in archive metadata (hash, state, tags) when available.
+            let archive = Archive::open(&archive_dir).ok();
+            stat::run(&mut backends, archive.as_ref(), args).await
+        }
         Command::Find(args) => {
             // Open the archive lazily: an already-archived prefix is answered
             // locally, otherwise find walks the backend.

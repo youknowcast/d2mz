@@ -91,10 +91,34 @@ pub async fn run(
             }
         }
     }
+    // A one-line summary at the end, so a long import is easy to size up.
+    summarize(&outcomes);
     if missing > 0 {
         eprintln!("marked {missing} vanished source(s) as missing");
     }
     Ok(())
+}
+
+/// Print `N ingested, M deduplicated (saved SIZE), K unchanged` to stderr.
+fn summarize(outcomes: &[IngestOutcome]) {
+    if outcomes.is_empty() {
+        return;
+    }
+    let ingested = outcomes
+        .iter()
+        .filter(|o| !o.deduplicated && !o.unchanged)
+        .count();
+    let deduplicated = outcomes.iter().filter(|o| o.deduplicated).count();
+    let unchanged = outcomes.iter().filter(|o| o.unchanged).count();
+    let saved: u64 = outcomes
+        .iter()
+        .filter(|o| o.deduplicated && !o.unchanged)
+        .map(|o| o.size)
+        .sum();
+    eprintln!(
+        "{ingested} ingested, {deduplicated} deduplicated (saved {}), {unchanged} unchanged",
+        crate::output::human_size(saved)
+    );
 }
 
 /// Mark entries under `uri` that were not seen in this pass as missing.

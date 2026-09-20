@@ -44,8 +44,33 @@ pub async fn run(backends: &mut Backends, archive: &Archive, args: ExportArgs) -
         .write(&path, bytes)
         .await
         .with_context(|| format!("writing {dest}"))?;
+
+    // Restore the recorded modification time so a restored tree does not
+    // look like it was all written today. Local backends only.
+    if dest.backend() == "local"
+        && let Some(mtime) = recorded_mtime(archive, &hash)?
+    {
+        set_local_mtime(&std::path::Path::new("/").join(&path), mtime);
+    }
+
     println!("exported {hash} -> {dest}");
     Ok(())
+}
+
+/// The newest recorded mtime for a blob, if any entry has one.
+fn recorded_mtime(archive: &Archive, hash: &str) -> Result<Option<i64>> {
+    Ok(archive
+        .index()
+        .entries()?
+        .into_iter()
+        .find(|entry| entry.blob == hash)
+        .and_then(|entry| entry.mtime))
+}
+
+/// Set a local file's mtime, ignoring failure (it is best-effort metadata).
+fn set_local_mtime(path: &std::path::Path, seconds: i64) {
+    let time = filetime::FileTime::from_unix_time(seconds, 0);
+    let _ = filetime::set_file_mtime(path, time);
 }
 
 /// Expand a (possibly abbreviated) hash prefix to a full hash.
