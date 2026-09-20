@@ -77,8 +77,17 @@ sorts by path. When the target is a file it is shown as a single entry.
 ## Roadmap
 
 - **M0** (done) config, MZ resolver, `ls` / `cat` / `stat` on local files.
-- **M1** `find`, recursive listing, filters.
-- **M2** S3-compatible backend, verified against MinIO.
+- **M1** (done) `find`, recursive listing, name/size filters.
+- **M2** (done) S3-compatible backend, verified against RustFS.
 - **M3** archive schema + `ingest` + BLAKE3 dedup.
 - **M4** tags and search (SQLite FTS5).
 - **M5** static musl build, shell completions, man page.
+
+## Build and dependencies
+
+The release binary is built with `strip`, thin LTO, one codegen unit, and
+`panic = "abort"`. TLS uses rustls with the **ring** provider instead of the
+default aws-lc-rs, which halves the binary size (14M → 7.5M). Because the
+provider is not auto-selected with `rustls-no-provider`, `d2mz::init_http()`
+installs the ring provider and the reqwest transport before any HTTP backend
+is constructed.
