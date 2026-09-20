@@ -132,6 +132,45 @@ fn ls_recursive_descends_into_subdirectories() {
 }
 
 #[test]
+fn ls_lists_directories_before_files() {
+    let dir = tempfile::tempdir().unwrap();
+    // Names chosen so plain lexicographic order would put files first.
+    fs::write(dir.path().join("aaa.txt"), "x").unwrap();
+    fs::create_dir(dir.path().join("zzz")).unwrap();
+    fs::write(dir.path().join("zzz/inside.txt"), "x").unwrap();
+
+    let listing = stdout(&run(d2mz().arg("ls").arg(dir.path())));
+    let lines: Vec<&str> = listing.lines().collect();
+    let first = lines.first().copied().unwrap_or("");
+    assert_eq!(first, "zzz/", "directories should sort first: {listing}");
+}
+
+#[test]
+fn ls_aligns_wide_cjk_names() {
+    use unicode_width::UnicodeWidthStr;
+
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("短い.txt"), "x").unwrap();
+    fs::write(dir.path().join("とても長い日本語のファイル名.txt"), "x").unwrap();
+
+    let listing = stdout(&run(d2mz().args(["ls", "-l"]).arg(dir.path())));
+    // Every long line pads the size column to the same display column; the
+    // name may be wide, but the leading columns must line up.
+    let widths: Vec<usize> = listing
+        .lines()
+        .map(|line| {
+            let name_start = line.rfind(' ').map(|i| i + 1).unwrap_or(0);
+            line[..name_start].width()
+        })
+        .collect();
+    let first = widths.first().copied().unwrap_or(0);
+    assert!(
+        widths.iter().all(|width| *width == first),
+        "long-listing columns are not aligned: {listing}"
+    );
+}
+
+#[test]
 fn find_filters_by_name_glob() {
     let dir = fixture();
     let listing = stdout(&run(d2mz()
