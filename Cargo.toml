@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/d2mz"]
+members = ["crates/d2mz", "crates/mz"]
 
 [workspace.package]
 version = "0.1.0"

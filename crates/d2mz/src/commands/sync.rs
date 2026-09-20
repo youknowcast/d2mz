@@ -5,7 +5,7 @@ use crate::archive::lock::{DEFAULT_TTL_SECS, acquire};
 use crate::archive::sync::{Snapshot, outgoing};
 use crate::backend::Backends;
 use crate::cli::SyncArgs;
-use crate::config::Config;
+use crate::config::AppConfig;
 use crate::uri::Uri;
 
 /// Result of a sync run, printed as text or JSON.
@@ -20,7 +20,7 @@ struct SyncReport {
 
 pub async fn run(
     backends: &mut Backends,
-    config: &Config,
+    config: &AppConfig,
     archive: &Archive,
     args: SyncArgs,
 ) -> Result<()> {
@@ -198,7 +198,7 @@ fn merge_remote(remote: &Snapshot, added: &Snapshot) -> Snapshot {
 }
 
 /// Where the remote snapshot comes from: `--remote`, else `main` in config.
-fn resolve_remote(config: &Config, args: &SyncArgs) -> Result<String> {
+fn resolve_remote(config: &AppConfig, args: &SyncArgs) -> Result<String> {
     if let Some(remote) = &args.remote {
         return Ok(remote.clone());
     }

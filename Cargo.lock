@@ -461,6 +461,7 @@ dependencies = [
  "futures",
  "globset",
  "image",
+ "mz",
  "opendal",
  "opendal-http-transport-reqwest",
  "rusqlite",
@@ -1401,6 +1402,19 @@ checksum = "bb85c154ba489f01b25c0d36ae69a87e4a1c73a72631fc6c0eb6dde34a73e44b"
 dependencies = [
  "num-traits",
  "pxfm",
+]
+
+[[package]]
+name = "mz"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "opendal",
+ "opendal-http-transport-reqwest",
+ "rustls",
+ "serde",
+ "toml",
 ]
 
 [[package]]

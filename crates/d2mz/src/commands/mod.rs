@@ -22,16 +22,16 @@ use anyhow::Result;
 use crate::archive::Archive;
 use crate::backend::Backends;
 use crate::cli::{Cli, Command};
-use crate::config::Config;
+use crate::config::AppConfig;
 
 /// Load configuration and dispatch to the requested subcommand.
 pub async fn run(cli: Cli) -> Result<()> {
     let config = match &cli.config {
-        Some(path) => Config::load_from(path)?,
-        None => Config::load()?,
+        Some(path) => AppConfig::load_from(path)?,
+        None => AppConfig::load()?,
     };
     let archive_dir = config.archive_dir.clone();
-    let mut backends = Backends::new(config.clone());
+    let mut backends = Backends::new(config.mz.clone());
 
     match cli.command {
         Command::Ls(args) => ls::run(&mut backends, args).await,
@@ -117,7 +117,7 @@ pub async fn run(cli: Cli) -> Result<()> {
 /// the command's result.
 async fn auto_sync(
     backends: &mut Backends,
-    config: &Config,
+    config: &AppConfig,
     archive: &Archive,
     command_succeeded: bool,
 ) -> Result<()> {

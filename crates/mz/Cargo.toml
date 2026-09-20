@@ -1,0 +1,16 @@
+[package]
+name = "mz"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The MZ virtual data source: URI resolution over OpenDAL backends"
+
+[dependencies]
+anyhow = "1"
+dirs = "6"
+opendal = { version = "0.59.2", default-features = false, features = ["services-fs", "services-s3", "auto-register-services", "executors-tokio", "http-transport-reqwest-rustls-no-provider", "layers-concurrent-limit", "layers-logging", "layers-retry", "layers-timeout", "services-http", "services-sftp"] }
+opendal-http-transport-reqwest = { version = "0.59.2", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
