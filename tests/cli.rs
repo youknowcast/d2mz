@@ -154,3 +154,38 @@ fn find_accepts_comma_separated_globs() {
     assert!(listing.contains("skip.md"), "{listing}");
     assert!(!listing.contains("notes.txt"), "{listing}");
 }
+
+#[test]
+fn find_filters_by_size() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("small.txt"), "x").unwrap();
+    fs::write(dir.path().join("large.txt"), "x".repeat(4096)).unwrap();
+
+    let big = stdout(&run(d2mz()
+        .args(["find", "--min-size", "1K"])
+        .arg(dir.path())));
+    assert!(big.contains("large.txt"), "{big}");
+    assert!(!big.contains("small.txt"), "{big}");
+
+    let small = stdout(&run(d2mz()
+        .args(["find", "--max-size", "1K"])
+        .arg(dir.path())));
+    assert!(small.contains("small.txt"), "{small}");
+    assert!(!small.contains("large.txt"), "{small}");
+}
+
+#[test]
+fn find_json_reports_paths() {
+    let dir = fixture();
+    let listing = stdout(&run(d2mz()
+        .args(["find", "--name", "*.log", "--json"])
+        .arg(dir.path())));
+    let parsed: serde_json::Value = serde_json::from_str(&listing).expect("valid JSON");
+    let names: Vec<&str> = parsed
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|entry| entry["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"deep.log"), "{names:?}");
+}
