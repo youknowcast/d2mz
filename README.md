@@ -33,14 +33,22 @@ cargo build --release
 # dynamic glibc binary at target/release/d2mz
 
 scripts/build-static.sh                 # fully static musl binary via zig
-scripts/build-static.sh --install-dir ~/.local/bin
+scripts/install.sh                      # build static + install binary/man/completions
+scripts/install.sh --prefix /usr/local  # install elsewhere
 ```
 
 The static build needs a musl C compiler because bundled SQLite and ring
 compile C; the script downloads zig to provide one without touching system
 packages.
 
+`d2mz --version` reports the crate version plus the build's git revision,
+for example `0.8.0+bf2ac36`, so it is clear which working tree a binary came
+from. Non-git builds omit the suffix.
+
 ## Shell integration
+
+`scripts/install.sh` installs the man page and bash completion for you. To
+do it by hand:
 
 ```sh
 d2mz completions bash > ~/.local/share/bash-completion/completions/d2mz

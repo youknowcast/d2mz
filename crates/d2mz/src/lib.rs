@@ -13,3 +13,9 @@ pub mod output;
 pub use mz::{backend, uri};
 
 pub use mz::init_http;
+
+/// The version string, including the build's git revision when known.
+///
+/// Reported as `0.8.0+abcd123`, so it is clear which working tree a binary
+/// came from. The suffix is empty for non-git builds.
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), env!("D2MZ_GIT_SHA"));
