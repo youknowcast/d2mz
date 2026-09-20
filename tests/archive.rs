@@ -293,10 +293,15 @@ fn reingest_is_incremental_and_sweeps_vanished_sources() {
 
     // A second pass reads nothing new.
     let second = stdout(&run(
-        d2mz(archive.path()).args(["ingest", "-R", "--json"]).arg(src.path()),
+        d2mz(archive.path())
+            .args(["ingest", "-R", "--json"])
+            .arg(src.path()),
     ));
     let records: Vec<serde_json::Value> = serde_json::from_str(&second).unwrap();
-    assert!(records.iter().all(|record| record["unchanged"] == true), "{second}");
+    assert!(
+        records.iter().all(|record| record["unchanged"] == true),
+        "{second}"
+    );
 
     // Removing a file makes the next recursive ingest notice it.
     fs::remove_file(src.path().join("sub/b.txt")).unwrap();
@@ -333,6 +338,52 @@ fn stale_temp_files_are_swept_on_open() {
     run(&mut command);
 
     assert!(!stale.exists(), "stale temp file survived");
+}
+
+#[test]
+fn search_classifies_hash_tag_path_and_text() {
+    let archive = tempfile::tempdir().unwrap();
+    let src = tempfile::tempdir().unwrap();
+    fs::create_dir_all(src.path().join("docs")).unwrap();
+    fs::write(src.path().join("docs/report.txt"), "quarterly\n").unwrap();
+    fs::write(src.path().join("img.png"), "not a real png\n").unwrap();
+
+    run(d2mz(archive.path()).args(["ingest", "-R"]).arg(src.path()));
+    run(d2mz(archive.path()).args(["tag", "add", "work", "--id", "report.txt"]));
+
+    // A stored tag name resolves without a leading '#'.
+    assert!(stdout(&run(d2mz(archive.path()).args(["search", "work"]))).contains("report.txt"));
+    // An explicit '#tag' works too.
+    assert!(stdout(&run(d2mz(archive.path()).args(["search", "#work"]))).contains("report.txt"));
+    // A path-like term matches by prefix.
+    assert!(stdout(&run(d2mz(archive.path()).args(["search", "docs/"]))).contains("report.txt"));
+    // A hash prefix finds entries by content.
+    let listing = stdout(&run(d2mz(archive.path()).args(["archive", "--json"])));
+    let records: Vec<serde_json::Value> = serde_json::from_str(&listing).unwrap();
+    let hash = records[0]["hash"].as_str().unwrap().to_string();
+    let by_hash = stdout(&run(d2mz(archive.path()).args(["search", &hash[..10]])));
+    assert!(!by_hash.is_empty(), "{by_hash}");
+}
+
+#[test]
+fn find_answers_from_the_index_when_archived() {
+    let archive = tempfile::tempdir().unwrap();
+    let src = tempfile::tempdir().unwrap();
+    fs::write(src.path().join("a.txt"), "one\n").unwrap();
+    fs::write(src.path().join("b.log"), "two\n").unwrap();
+
+    run(d2mz(archive.path()).args(["ingest", "-R"]).arg(src.path()));
+
+    // The source directory is removed, yet find still answers from the index.
+    fs::remove_dir_all(src.path()).unwrap();
+    let listing = stdout(
+        &run(d2mz(archive.path())
+            .args(["find"])
+            .arg(src.path())
+            .args(["--name", "*.txt"])),
+    );
+    assert!(listing.contains("a.txt"), "{listing}");
+    assert!(!listing.contains("b.log"), "{listing}");
 }
 
 fn count_files(dir: &Path) -> usize {

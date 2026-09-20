@@ -79,6 +79,18 @@ impl EntryView {
         }
     }
 
+    /// Project an archived entry recorded in the index.
+    pub fn from_archived(entry: &crate::archive::db::Entry) -> EntryView {
+        EntryView {
+            uri: entry.source.clone(),
+            name: entry.name.clone(),
+            path: entry.path.clone(),
+            kind: "file",
+            size: Some(entry.size),
+            modified: None,
+        }
+    }
+
     /// Name with a trailing slash for directories.
     pub fn plain(&self) -> String {
         if self.kind == "dir" {
