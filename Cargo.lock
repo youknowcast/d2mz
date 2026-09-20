@@ -452,7 +452,6 @@ name = "d2mz"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "blake3",
  "clap",
  "clap_complete",
  "clap_mangen",
@@ -461,11 +460,9 @@ dependencies = [
  "filetime",
  "futures",
  "globset",
- "image",
  "mz",
  "opendal",
  "opendal-http-transport-reqwest",
- "rusqlite",
  "rustls",
  "serde",
  "serde_json",

@@ -7,22 +7,42 @@ without the user caring where the bytes physically live.
 
 ## Layers
 
+The project is a Cargo workspace with a one-way dependency graph:
+
+```
+crates/d2mz           CLI (clap), commands, output, AppConfig
+   │
+   ├── crates/mz            URI resolution, backend config, prefix listing
+   └── crates/d2mz-archive  SQLite index + BLAKE3 content-addressed store
+             │
+          OpenDAL       services-fs, services-s3, sftp, http, ...
+```
+
+- `d2mz → { mz, d2mz-archive }`
+- `mz → opendal` only; it never sees the archive or the CLI
+- `d2mz-archive → opendal` only; it takes an `Operator`, never an MZ type
+- `mz` and `d2mz-archive` do not depend on each other
+
 ```
 CLI (clap)   ls / cat / stat / find / ingest / tag / search
    │
-URI          mz://<backend>/<path>;  bare path = local
+URI          mz://<backend>/<path>;  bare path = local   (mz::uri)
    │
-MZ           config + env → opendal::Operator  (src/backend.rs)
+MZ           config → opendal::Operator                  (mz::backend)
    │
 OpenDAL      services-fs, services-s3, ... (sftp, webdav, gcs, ...)
    │
-archive      SQLite index + BLAKE3 content-addressed store
+archive      SQLite index + BLAKE3 store                 (d2mz-archive)
 ```
 
 The **MZ** layer is the core idea: a URI names a configured backend, and
 `Backends::resolve` turns it into an OpenDAL `Operator`. Everything above
 works against the uniform operator API. The archive is itself just another
 backend, so ingesting from a remote source is a copy between two operators.
+
+Application settings (`AppConfig`: archive_dir, main, auto_sync, ignore)
+live in the CLI crate and embed `mz::Config` via `#[serde(flatten)]`, so the
+on-disk TOML format is unchanged.
 
 ## URI scheme
 

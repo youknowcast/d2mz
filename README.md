@@ -13,6 +13,19 @@ work no matter where the bytes live.
 > deduplication, with tags and full-text search (`tag`, `search`). The
 > original Python prototype is preserved under [`legacy/`](legacy/).
 
+## Layout
+
+The workspace separates the layers so the dependency direction is one-way:
+
+| Crate | Role |
+| ----- | ---- |
+| `crates/d2mz` | CLI (clap), commands, output, application config |
+| `crates/mz` | URI resolution, backend config, prefix listing (OpenDAL) |
+| `crates/d2mz-archive` | SQLite index, BLAKE3 blob store, sync, thumbnails |
+
+`d2mz` depends on `mz` and `d2mz-archive`; those two depend only on OpenDAL
+and not on each other or on the CLI.
+
 ## Build
 
 ```sh
