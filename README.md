@@ -7,16 +7,17 @@ d2mz puts every backend (local files, S3-compatible object storage, and more
 to come) behind a single virtual data source called **MZ**. The same commands
 work no matter where the bytes live.
 
-> Status: early. The read-only browse commands (`ls`, `cat`, `stat`, `find`)
-> work against local files, S3-compatible storage, and plain HTTP(S) URLs. The
-> content-addressed archive is designed but not implemented yet. The original
+> Status: early. Browse (`ls`, `cat`, `stat`, `find`) works against local
+> files, S3-compatible storage, and plain HTTP(S) URLs. A content-addressed
+> archive (`ingest`, `archive`, `export`) performs BLAKE3-based
+> deduplication. Tags and full-text search are still to come. The original
 > Python prototype is preserved under [`legacy/`](legacy/).
 
 ## Build
 
 ```sh
 cargo build --release
-# binary at target/release/d2mz (~7.5M, static)
+# binary at target/release/d2mz (~8M, static)
 ```
 
 ## Usage
@@ -34,7 +35,21 @@ d2mz find ./src --name '*.rs'    # name glob below a URI
 d2mz find . --min-size 1M        # size filter
 
 d2mz ls mz://r2/backups/2026     # a named remote backend
-d2mz list --json                 # (reserved)
+```
+
+### Archive
+
+`ingest` copies objects into a local content-addressed store: identical
+contents are written once and shared between entries. `export` writes a blob
+back out to any backend.
+
+```sh
+d2mz ingest -R ./photos                    # ingest a tree
+d2mz ingest mz://rfs/backups --name '*.tar'
+d2mz archive -l                            # list archived entries
+d2mz archive --prefix photos/ --json
+d2mz export 3f9a1c2b ./restored.jpg        # hash prefix is enough
+d2mz export 3f9a1c2b mz://rfs/restored.jpg
 ```
 
 `find` accepts a comma-separated glob (`--name '*.log,*.txt'`) and sizes

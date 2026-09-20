@@ -1,5 +1,4 @@
 [build]
-edition = "2024"
 
 # Ship a small, fast binary: optimize for size-class output, strip symbols,
 # and fold the formatting/panic machinery away.

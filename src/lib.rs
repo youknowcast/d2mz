@@ -1,5 +1,6 @@
 //! Library entry points shared by the binary and the test suite.
 
+pub mod archive;
 pub mod backend;
 pub mod browse;
 pub mod cli;

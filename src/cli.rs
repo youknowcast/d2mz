@@ -27,6 +27,12 @@ pub enum Command {
     Stat(StatArgs),
     /// Search for objects below a URI.
     Find(FindArgs),
+    /// Copy an object into the local archive.
+    Ingest(IngestArgs),
+    /// List archived entries.
+    Archive(ArchiveArgs),
+    /// Write an archived blob back out to a URI.
+    Export(ExportArgs),
 }
 
 /// A byte-size filter value such as `10K`, `5M`, or `2G`.
@@ -123,4 +129,54 @@ pub struct FindArgs {
     /// Emit the results as JSON.
     #[arg(long)]
     pub json: bool,
+}
+
+/// Arguments for `d2mz ingest`.
+#[derive(Debug, Args)]
+pub struct IngestArgs {
+    /// One or more source URIs.
+    #[arg(required = true)]
+    pub uris: Vec<String>,
+
+    /// Only ingest objects whose name matches this glob.
+    #[arg(long)]
+    pub name: Option<String>,
+
+    /// Recurse into directories.
+    #[arg(short = 'R', long)]
+    pub recursive: bool,
+
+    /// Show a long listing.
+    #[arg(short, long)]
+    pub long: bool,
+
+    /// Emit the results as JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// Arguments for `d2mz archive`.
+#[derive(Debug, Args)]
+pub struct ArchiveArgs {
+    /// Only show entries under this path prefix.
+    #[arg(long)]
+    pub prefix: Option<String>,
+
+    /// Show a long listing.
+    #[arg(short, long)]
+    pub long: bool,
+
+    /// Emit the listing as JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// Arguments for `d2mz export`.
+#[derive(Debug, Args)]
+pub struct ExportArgs {
+    /// Blob hash (or unique prefix) to export.
+    pub hash: String,
+
+    /// Destination URI. Defaults to the object's recorded source name.
+    pub uri: Option<String>,
 }
